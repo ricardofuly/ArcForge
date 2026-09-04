@@ -14,6 +14,21 @@ let isDownloadActive = false;
 let isDownloadPaused = false;
 let currentDownloadDestDir = "";
 
+// Cache em memória de thumbnails para evitar re-leitura do disco e codificação base64 repetida
+const thumbnailCache = new Map();
+
+// Função estrita de sanitização contra XSS
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
 async function refreshDetectedIdes() {
   try {
     detectedIdes = await invoke("get_available_ides");
@@ -73,8 +88,12 @@ function switchView(viewName) {
   updateTopDownloadWidgetVisibility();
   if (viewName === "downloads") {
     renderSteamGraph();
-  } else if (viewName === "vault" && !vaultLoaded) {
-    refreshVault(false);
+  } else if (viewName === "vault") {
+    if (!vaultLoaded) {
+      refreshVault(false);
+    } else {
+      renderVaultGrid();
+    }
   }
 }
 
@@ -125,7 +144,7 @@ function renderEngines() {
         card.className = "engine-status-card";
         card.innerHTML = `
           <div class="engine-status-top">
-            <span class="engine-status-name" title="Unreal Engine ${eng.version}">Unreal Engine ${eng.version}</span>
+            <span class="engine-status-name" title="Unreal Engine ${escapeHtml(eng.version)}">Unreal Engine ${escapeHtml(eng.version)}</span>
             <span class="status-indicator-dot" title="Pronta para uso"></span>
           </div>
           <div class="engine-status-meta">
@@ -173,15 +192,16 @@ function renderEngines() {
         card.className = "engine-card";
         card.innerHTML = `
           <div class="engine-card-top">
-            <span class="engine-version">${eng.version}</span>
+            <span class="engine-version">${escapeHtml(eng.version)}</span>
             <span class="engine-badge ${eng.is_source_build ? "source" : ""}">${eng.is_source_build ? "source build" : "installed build"}</span>
           </div>
-          <span class="engine-path">${eng.path}</span>
+          <span class="engine-path">${escapeHtml(eng.path)}</span>
           <div class="engine-card-actions">
-            <button class="btn btn-small btn-ghost btn-open-editor" data-id="${eng.id}">Abrir Editor</button>
-            <button class="btn btn-small btn-ghost btn-remove-engine" style="color: var(--danger);" data-id="${eng.id}">Remover</button>
+            <button class="btn btn-small btn-ghost btn-open-editor" data-id="${escapeHtml(eng.id)}">Abrir Editor</button>
+            <button class="btn btn-small btn-ghost btn-remove-engine" style="color: var(--danger);" data-id="${escapeHtml(eng.id)}">Remover</button>
           </div>
         `;
+
         card.querySelector(".btn-open-editor").addEventListener("click", async () => {
           try {
             await invoke("launch_engine_editor", { engineId: eng.id, rhiMode: "auto" });
@@ -351,7 +371,10 @@ function renderWatchedDirs() {
     for (const dir of projectDirs) {
       const chip = document.createElement("div");
       chip.className = "chip";
-      chip.innerHTML = `<span>${dir}</span>`;
+      const span = document.createElement("span");
+      span.textContent = dir;
+      chip.appendChild(span);
+
       const removeBtn = document.createElement("button");
       removeBtn.textContent = "×";
       removeBtn.addEventListener("click", async () => {
@@ -371,6 +394,23 @@ async function refreshProjects() {
   updateSidebarStats();
 }
 
+function applyThumbnailToCard(card, dataUrl, projName) {
+  const cover = card.querySelector(".modern-proj-cover");
+  if (!cover) return;
+  const placeholder = card.querySelector(".modern-proj-placeholder");
+  if (placeholder) placeholder.remove();
+  const existingImg = cover.querySelector(".modern-proj-cover-img");
+  if (existingImg) {
+    existingImg.src = dataUrl;
+  } else {
+    const img = document.createElement("img");
+    img.className = "modern-proj-cover-img";
+    img.src = dataUrl;
+    img.alt = projName;
+    cover.prepend(img);
+  }
+}
+
 function createModernProjectCard(proj) {
   const card = document.createElement("div");
   card.className = "modern-proj-card";
@@ -378,13 +418,13 @@ function createModernProjectCard(proj) {
   const engineOptions = engines
     .map(
       (e) =>
-        `<option value="${e.id}" ${e.id === proj.matched_engine_id ? "selected" : ""}>Unreal Engine ${e.version}</option>`
+        `<option value="${escapeHtml(e.id)}" ${e.id === proj.matched_engine_id ? "selected" : ""}>Unreal Engine ${escapeHtml(e.version)}</option>`
     )
     .join("");
 
   const matchedEngine = engines.find((e) => e.id === proj.matched_engine_id);
-  const engineBadgeText = matchedEngine ? `UE ${matchedEngine.version}` : (engines.length > 0 ? "UE ?" : "Sem Engine");
-  const initials = (proj.name || "UE").slice(0, 2).toUpperCase();
+  const engineBadgeText = matchedEngine ? `UE ${escapeHtml(matchedEngine.version)}` : (engines.length > 0 ? "UE ?" : "Sem Engine");
+  const initials = escapeHtml((proj.name || "UE").slice(0, 2).toUpperCase());
 
   card.innerHTML = `
     <div class="modern-proj-cover">
@@ -400,8 +440,8 @@ function createModernProjectCard(proj) {
       </div>
     </div>
     <div class="modern-proj-content">
-      <h3 class="modern-proj-title" title="${proj.name}">${proj.name}</h3>
-      <span class="modern-proj-path" title="Clique para abrir pasta no sistema: ${proj.uproject_path}">📁 ${proj.project_dir}</span>
+      <h3 class="modern-proj-title" title="${escapeHtml(proj.name)}">${escapeHtml(proj.name)}</h3>
+      <span class="modern-proj-path" title="Clique para abrir pasta no sistema: ${escapeHtml(proj.uproject_path)}">📁 ${escapeHtml(proj.project_dir)}</span>
 
       <div class="modern-proj-selectors">
         <select class="select-dark engine-select" title="Versão da Unreal Engine">
@@ -442,20 +482,20 @@ function createModernProjectCard(proj) {
     </div>
   `;
 
+  // Carregamento otimizado de thumbnail com cache em memória
   if (proj.thumbnail_path) {
-    invoke("read_project_thumbnail", { path: proj.thumbnail_path })
-      .then((dataUrl) => {
-        const cover = card.querySelector(".modern-proj-cover");
-        const placeholder = card.querySelector(".modern-proj-placeholder");
-        if (placeholder) placeholder.remove();
-        const img = document.createElement("img");
-        img.className = "modern-proj-cover-img";
-        img.src = dataUrl;
-        img.alt = proj.name;
-        cover.prepend(img);
-      })
-      .catch(() => {});
+    if (thumbnailCache.has(proj.thumbnail_path)) {
+      applyThumbnailToCard(card, thumbnailCache.get(proj.thumbnail_path), proj.name);
+    } else {
+      invoke("read_project_thumbnail", { path: proj.thumbnail_path })
+        .then((dataUrl) => {
+          thumbnailCache.set(proj.thumbnail_path, dataUrl);
+          applyThumbnailToCard(card, dataUrl, proj.name);
+        })
+        .catch(() => {});
+    }
   }
+
 
   const select = card.querySelector(".engine-select");
   const openBtn = card.querySelector(".btn-open-project");
@@ -651,7 +691,7 @@ async function checkGpuCompatibility() {
         const desc = document.getElementById("gpu-compat-desc");
         if (title) title.textContent = "Modo de Segurança Vulkan SM5 Ativo";
         if (desc) {
-          desc.innerHTML = `Sua GPU (<strong>${gpuInfo.name}</strong>) opera com maior estabilidade em Vulkan SM5. O launcher aplica <code>-sm5</code> automaticamente ao iniciar o editor e projetos, mantendo seus arquivos intactos.`;
+          desc.innerHTML = `Sua GPU (<strong>${escapeHtml(gpuInfo.name)}</strong>) opera com maior estabilidade em Vulkan SM5. O launcher aplica <code>-sm5</code> automaticamente ao iniciar o editor e projetos, mantendo seus arquivos intactos.`;
         }
       }
       if (hint) {
@@ -685,12 +725,13 @@ function openCreateProjectModal() {
     return;
   }
 
-  // Preenche opções de engines
+  // Preenche opções de engines sanitizadas
   if (selectEngine) {
     selectEngine.innerHTML = engines
-      .map((e) => `<option value="${e.id}">Unreal Engine ${e.version} (${e.path})</option>`)
+      .map((e) => `<option value="${escapeHtml(e.id)}">Unreal Engine ${escapeHtml(e.version)} (${escapeHtml(e.path)})</option>`)
       .join("");
   }
+
 
   // Define RHI recomendado
   if (selectRhi && gpuInfo?.recommends_sm5) {
@@ -905,6 +946,7 @@ document.getElementById("btn-open-epic-login").addEventListener("click", async (
     showToast(String(err), true);
   } finally {
     await refreshEpicStatus();
+    refreshVault(true).catch(() => {});
   }
 });
 
@@ -916,6 +958,10 @@ document.getElementById("btn-epic-logout").addEventListener("click", async () =>
     showToast(String(err), true);
   } finally {
     await refreshEpicStatus();
+    vaultItems = [];
+    vaultFilteredItems = [];
+    vaultLoaded = false;
+    renderVaultGrid();
   }
 });
 
@@ -972,13 +1018,15 @@ function renderAvailableEngines() {
       ? `<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 11px;">Pré-compilada Oficial</span>`
       : `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 11px;">Código Fonte (GitHub)</span>`;
 
+    const isWindows = navigator.userAgent.toLowerCase().includes("windows") || (navigator.platform && navigator.platform.toLowerCase().includes("win"));
+
     const metaText = isPrecompiled
-      ? `${sizeGb} • Build oficial da Epic Games para Linux`
+      ? `${sizeGb} • Build oficial da Epic Games para ${isWindows ? "Windows" : "Linux"}`
       : `Repositório oficial da Epic Games • GitHub Release`;
 
     const actionBtnText = isInstalled
       ? "Reinstalar"
-      : (isPrecompiled ? "Baixar & Instalar" : "Obter no GitHub ↗");
+      : (isPrecompiled ? (isWindows ? "Instalar via Epic Games ↗" : "Baixar & Instalar") : "Obter no GitHub ↗");
 
     card.innerHTML = `
       <div class="available-info">
@@ -1002,6 +1050,17 @@ function renderAvailableEngines() {
           showToast(`Abrindo repositório oficial da UE ${ver} no GitHub...`);
         } catch (err) {
           showToast(`Erro ao abrir navegador: ${err}`, true);
+        }
+        return;
+      }
+
+      if (isWindows) {
+        try {
+          await openUrl("com.epicgames.launcher://apps/ue");
+          showToast(`Abrindo Epic Games Launcher para gerenciar a ${cleanName}…`);
+        } catch {
+          await openUrl("https://store.epicgames.com/download");
+          showToast("Abra o Epic Games Launcher para instalar versões oficiais no Windows.", true);
         }
         return;
       }
@@ -1612,12 +1671,22 @@ let vaultRenderLimit = 40;
 let selectedVaultItem = null;
 let isVaultDownloading = false;
 
+let isVaultRefreshing = false;
+
 async function refreshVault(forceRefresh = false) {
+  if (isVaultRefreshing) return;
+  isVaultRefreshing = true;
+
   const loading = document.getElementById("vault-loading");
   const empty = document.getElementById("vault-empty");
+  const refreshBtn = document.getElementById("btn-refresh-vault");
 
   if (!vaultLoaded && loading) loading.hidden = false;
   if (empty) empty.hidden = true;
+  if (refreshBtn && forceRefresh) {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "↻ Sincronizando…";
+  }
 
   try {
     const items = await invoke("list_vault_items", { forceRefresh });
@@ -1631,6 +1700,12 @@ async function refreshVault(forceRefresh = false) {
   } catch (err) {
     if (loading) loading.hidden = true;
     showToast(`Erro ao carregar biblioteca da Epic: ${err}`, true);
+  } finally {
+    isVaultRefreshing = false;
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = "↻ Sincronizar";
+    }
   }
 }
 
@@ -1714,20 +1789,21 @@ function createVaultCard(item) {
     )
   ).slice(0, 4);
 
-  const thumbHtml = item.thumbnail_url
-    ? `<img src="${item.thumbnail_url}" alt="${item.title}" loading="lazy" />`
+  const isSafeThumb = item.thumbnail_url && /^https?:\/\//i.test(item.thumbnail_url);
+  const thumbHtml = isSafeThumb
+    ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="${escapeHtml(item.title)}" loading="lazy" />`
     : `<div class="vault-card-placeholder">📦</div>`;
 
   card.innerHTML = `
     <div class="vault-card-cover">
       ${thumbHtml}
-      <span class="vault-type-badge ${item.item_type}">${typeLabel}</span>
+      <span class="vault-type-badge ${escapeHtml(item.item_type)}">${escapeHtml(typeLabel)}</span>
     </div>
     <div class="vault-card-body">
-      <h3 class="vault-card-title" title="${item.title}">${item.title}</h3>
-      <span class="vault-card-dev" title="${item.developer}">${item.developer}</span>
+      <h3 class="vault-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h3>
+      <span class="vault-card-dev" title="${escapeHtml(item.developer)}">${escapeHtml(item.developer)}</span>
       <div class="vault-card-versions">
-        ${compatibleVersions.map((v) => `<span class="vault-ver-tag">UE ${v}</span>`).join("")}
+        ${compatibleVersions.map((v) => `<span class="vault-ver-tag">UE ${escapeHtml(v)}</span>`).join("")}
       </div>
       <div class="vault-card-footer">
         <button class="btn-vault-install">
@@ -1767,8 +1843,9 @@ function openVaultActionModal(item) {
   if (dev) dev.textContent = `Por ${item.developer}`;
   if (desc) desc.textContent = item.description || "Sem descrição disponível.";
   if (thumb) {
-    thumb.src = item.thumbnail_url || "";
-    thumb.style.display = item.thumbnail_url ? "block" : "none";
+    const isSafeThumb = item.thumbnail_url && /^https?:\/\//i.test(item.thumbnail_url);
+    thumb.src = isSafeThumb ? item.thumbnail_url : "";
+    thumb.style.display = isSafeThumb ? "block" : "none";
   }
 
   // Preencher versões disponíveis
@@ -1780,7 +1857,7 @@ function openVaultActionModal(item) {
         .map((r) => {
           const apps = r.compatible_apps.length > 0 ? ` [${r.compatible_apps.join(", ")}]` : "";
           const title = r.version_title || r.app_id;
-          return `<option value="${r.app_id}">${title}${apps}</option>`;
+          return `<option value="${escapeHtml(r.app_id)}">${escapeHtml(title)}${escapeHtml(apps)}</option>`;
         })
         .join("");
     }
@@ -1792,15 +1869,16 @@ function openVaultActionModal(item) {
       projectSelect.innerHTML = `<option value="">Nenhum projeto monitorado encontrado</option>`;
     } else {
       projectSelect.innerHTML = projects
-        .map((p) => `<option value="${p.uproject_path}">${p.name} (${p.project_dir})</option>`)
+        .map((p) => `<option value="${escapeHtml(p.uproject_path)}">${escapeHtml(p.name)} (${escapeHtml(p.project_dir)})</option>`)
         .join("");
     }
   }
 
   // Preencher engines
-  const engineOpts = engines.map((e) => `<option value="${e.id}">Unreal Engine ${e.version} (${e.path})</option>`).join("");
+  const engineOpts = engines.map((e) => `<option value="${escapeHtml(e.id)}">Unreal Engine ${escapeHtml(e.version)} (${escapeHtml(e.path)})</option>`).join("");
   if (engineSelect) engineSelect.innerHTML = engineOpts;
   if (newProjEngineSelect) newProjEngineSelect.innerHTML = engineOpts;
+
 
   // Sugerir nome e pasta para novo projeto
   if (newProjNameInput) {
@@ -2054,6 +2132,187 @@ document.getElementById("btn-refresh-vault")?.addEventListener("click", async ()
   await refreshVault(true);
 });
 
+// ---------- LIVE UPDATE SYSTEM ----------
+let availableUpdate = null;
+let isAppUpdating = false;
+
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "0 MB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return "";
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  } catch {
+    return isoStr;
+  }
+}
+
+async function checkForAppUpdates(manual = false) {
+  const pillBtn = document.getElementById("btn-update-available");
+  const pillText = document.getElementById("btn-update-pill-text");
+
+  try {
+    if (manual) {
+      showToast("Verificando atualizações no repositório...", "info");
+    }
+
+    const info = await invoke("check_app_update");
+    if (info && info.has_update) {
+      availableUpdate = info;
+      if (pillText) pillText.textContent = `🚀 Nova versão v${info.latest_version} disponível!`;
+      if (pillBtn) pillBtn.hidden = false;
+
+      if (manual) {
+        openAppUpdateModal();
+      } else {
+        showToast(`Nova versão v${info.latest_version} do Unreal Launcher disponível!`, "info");
+      }
+    } else {
+      if (pillBtn) pillBtn.hidden = true;
+      if (manual) {
+        const curVer = info?.current_version || "0.1.0";
+        showToast(`Você já está utilizando a versão mais recente (v${curVer})!`, "success");
+      }
+    }
+  } catch (err) {
+    console.error("Erro ao verificar atualizações:", err);
+    if (manual) {
+      showToast("Não foi possível verificar atualizações: " + err, "error");
+    }
+  }
+}
+
+function openAppUpdateModal() {
+  if (!availableUpdate) return;
+
+  const modal = document.getElementById("modal-app-update");
+  const curVerEl = document.getElementById("update-current-version");
+  const latVerEl = document.getElementById("update-latest-version");
+  const dateEl = document.getElementById("update-release-date");
+  const sizeEl = document.getElementById("update-release-size");
+  const notesEl = document.getElementById("update-release-notes");
+  const progressBox = document.getElementById("update-progress-container");
+  const startBtn = document.getElementById("btn-start-live-update");
+
+  if (curVerEl) curVerEl.textContent = `v${availableUpdate.current_version}`;
+  if (latVerEl) latVerEl.textContent = `v${availableUpdate.latest_version}`;
+  if (dateEl) dateEl.textContent = `Lançamento: ${formatDate(availableUpdate.published_at)}`;
+  if (sizeEl) sizeEl.textContent = `Tamanho: ~${formatBytes(availableUpdate.asset_size)}`;
+
+  if (notesEl) {
+    notesEl.textContent = availableUpdate.release_notes || "Sem notas de lançamento detalhadas.";
+  }
+
+  if (progressBox) progressBox.hidden = true;
+  if (startBtn) {
+    startBtn.disabled = false;
+    startBtn.innerHTML = `<span>Atualizar Agora</span>`;
+  }
+
+  if (modal) modal.hidden = false;
+}
+
+function closeAppUpdateModal() {
+  if (isAppUpdating) {
+    showToast("Atualização em andamento. Por favor aguarde.", "warning");
+    return;
+  }
+  const modal = document.getElementById("modal-app-update");
+  if (modal) modal.hidden = true;
+}
+
+async function startLiveUpdate() {
+  if (!availableUpdate) return;
+  if (!availableUpdate.asset_url) {
+    showToast("Nenhum binário direto encontrado para esta versão. Abrindo GitHub...", "info");
+    if (availableUpdate.html_url) {
+      openUrl(availableUpdate.html_url);
+    }
+    return;
+  }
+
+  isAppUpdating = true;
+  const progressBox = document.getElementById("update-progress-container");
+  const startBtn = document.getElementById("btn-start-live-update");
+  const laterBtn = document.getElementById("btn-remind-later-update");
+  const closeBtn = document.getElementById("btn-close-update-modal");
+
+  if (progressBox) progressBox.hidden = false;
+  if (startBtn) {
+    startBtn.disabled = true;
+    startBtn.innerHTML = `<span>Atualizando…</span>`;
+  }
+  if (laterBtn) laterBtn.disabled = true;
+  if (closeBtn) closeBtn.disabled = true;
+
+  try {
+    await invoke("download_and_apply_update", {
+      assetUrl: availableUpdate.asset_url,
+      assetName: availableUpdate.asset_name || "update_package",
+    });
+  } catch (err) {
+    console.error("Erro ao aplicar atualização:", err);
+    isAppUpdating = false;
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.innerHTML = `<span>Tentar Novamente</span>`;
+    }
+    if (laterBtn) laterBtn.disabled = false;
+    if (closeBtn) closeBtn.disabled = false;
+    const statusEl = document.getElementById("update-progress-status");
+    if (statusEl) statusEl.textContent = "Erro ao atualizar: " + err;
+    showToast("Erro ao instalar atualização: " + err, "error");
+  }
+}
+
+// Escuta o progresso do live update
+listen("app_update_progress", (event) => {
+  const p = event.payload;
+  const statusEl = document.getElementById("update-progress-status");
+  const barEl = document.getElementById("update-progress-bar");
+  const pctEl = document.getElementById("update-progress-percent");
+  const bytesEl = document.getElementById("update-progress-bytes");
+  const speedEl = document.getElementById("update-progress-speed");
+
+  if (statusEl) {
+    if (p.status === "installing") {
+      statusEl.textContent = "Instalando atualização e reiniciando…";
+    } else {
+      statusEl.textContent = p.message || "Baixando atualização…";
+    }
+  }
+
+  if (barEl) barEl.style.width = `${Math.min(100, Math.max(0, p.percentage))}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(p.percentage)}%`;
+
+  if (bytesEl && p.total_bytes > 0) {
+    const dlMb = (p.downloaded_bytes / (1024 * 1024)).toFixed(1);
+    const totMb = (p.total_bytes / (1024 * 1024)).toFixed(1);
+    bytesEl.textContent = `${dlMb} MB / ${totMb} MB`;
+  }
+
+  if (speedEl && p.speed_mbps > 0) {
+    speedEl.textContent = `⚡ ${p.speed_mbps.toFixed(1)} MB/s`;
+  }
+});
+
+// Event listeners do sistema de update
+document.getElementById("btn-update-available")?.addEventListener("click", openAppUpdateModal);
+document.getElementById("btn-check-updates")?.addEventListener("click", () => checkForAppUpdates(true));
+document.getElementById("btn-notifications")?.addEventListener("click", () => checkForAppUpdates(true));
+document.getElementById("btn-close-update-modal")?.addEventListener("click", closeAppUpdateModal);
+document.getElementById("btn-remind-later-update")?.addEventListener("click", closeAppUpdateModal);
+document.getElementById("btn-start-live-update")?.addEventListener("click", startLiveUpdate);
+document.getElementById("btn-view-github-release")?.addEventListener("click", () => {
+  if (availableUpdate?.html_url) {
+    openUrl(availableUpdate.html_url);
+  }
+});
+
 // ---------- Boot ----------
 (async function init() {
   // Garante que o widget ativo começa estritamente oculto se não houver download em andamento
@@ -2068,4 +2327,11 @@ document.getElementById("btn-refresh-vault")?.addEventListener("click", async ()
   await refreshEngines();
   await refreshProjectDirs();
   await refreshProjects();
+
+  // Pré-carrega o cache do Vault em segundo plano para resposta instantânea ao abrir a aba
+  refreshVault(false).catch((err) => console.warn("Pré-carregamento da biblioteca em background:", err));
+
+  // Checagem silenciosa de novas versões do app
+  setTimeout(() => checkForAppUpdates(false), 2000);
 })();
+

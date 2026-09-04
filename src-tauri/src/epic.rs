@@ -85,9 +85,21 @@ pub fn load_session() -> Option<EpicSession> {
 pub fn save_session(session: &EpicSession) -> Result<()> {
     let path = session_path()?;
     let json = serde_json::to_string_pretty(session)?;
-    fs::write(path, json)?;
+    fs::write(&path, json)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = fs::set_permissions(&path, perms);
+        }
+    }
+
     Ok(())
 }
+
 
 pub fn clear_session() -> Result<()> {
     if let Ok(path) = session_path() {
@@ -298,6 +310,11 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
     let captured_for_nav = captured.clone();
     let captured_for_tcp = captured.clone();
 
+    // Gera um nonce criptográfico para garantir que apenas esta janela do webview possa entregar o código
+    let session_nonce = uuid::Uuid::new_v4().to_string();
+    let nonce_for_tcp = session_nonce.clone();
+    let nonce_for_nav = session_nonce.clone();
+
     // Thread para processar conexão HTTP local caso a navegação chegue ao socket TCP
     let closed_for_tcp = closed.clone();
     std::thread::spawn(move || {
@@ -313,20 +330,28 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
                         if let Some(first_line) = req.lines().next() {
                             if let Some(path) = first_line.split_whitespace().nth(1) {
                                 if let Ok(parsed) = reqwest::Url::parse(&format!("http://127.0.0.1:{port}{path}")) {
-                                    for (k, v) in parsed.query_pairs() {
-                                        if (k == "data" || k == "code" || k == "authorizationCode") && !v.is_empty() {
-                                            let mut lock = captured_for_tcp.lock().unwrap();
-                                            if lock.is_none() {
-                                                *lock = Some(v.to_string());
+                                    // Valida nonce de segurança
+                                    let has_valid_nonce = parsed.query_pairs().any(|(k, v)| k == "nonce" && v == nonce_for_tcp);
+                                    if has_valid_nonce {
+                                        for (k, v) in parsed.query_pairs() {
+                                            if (k == "data" || k == "code" || k == "authorizationCode") && !v.is_empty() {
+                                                let mut lock = captured_for_tcp.lock().unwrap();
+                                                if lock.is_none() {
+                                                    *lock = Some(v.to_string());
+                                                }
                                             }
                                         }
+                                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><body><h3 style='font-family:sans-serif;text-align:center;margin-top:20%'>Login concluído com sucesso!</h3></body></html>";
+                                        let _ = stream.write_all(resp.as_bytes());
+                                        let _ = stream.flush();
+                                    } else {
+                                        let resp = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n";
+                                        let _ = stream.write_all(resp.as_bytes());
+                                        let _ = stream.flush();
                                     }
                                 }
                             }
                         }
-                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><body><h3 style='font-family:sans-serif;text-align:center;margin-top:20%'>Login concluído com sucesso!</h3></body></html>";
-                        let _ = stream.write_all(resp.as_bytes());
-                        let _ = stream.flush();
                     }
                     break;
                 }
@@ -347,14 +372,14 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
                         text = document.body.innerText || document.body.textContent || '';
                     }}
                     if (text && text.indexOf('authorizationCode') !== -1) {{
-                        window.location.replace('http://127.0.0.1:{port}/auth?data=' + encodeURIComponent(text));
+                        window.location.replace('http://127.0.0.1:{port}/auth?nonce={session_nonce}&data=' + encodeURIComponent(text));
                         return true;
                     }}
                     var pres = document.getElementsByTagName('pre');
                     for (var i = 0; i < pres.length; i++) {{
                         var pText = pres[i].innerText || pres[i].textContent || '';
                         if (pText && pText.indexOf('authorizationCode') !== -1) {{
-                            window.location.replace('http://127.0.0.1:{port}/auth?data=' + encodeURIComponent(pText));
+                            window.location.replace('http://127.0.0.1:{port}/auth?nonce={session_nonce}&data=' + encodeURIComponent(pText));
                             return true;
                         }}
                     }}
@@ -380,14 +405,14 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
                     text = document.body.innerText || document.body.textContent || '';
                 }}
                 if (text && text.indexOf('authorizationCode') !== -1) {{
-                    window.location.replace('http://127.0.0.1:{port}/auth?data=' + encodeURIComponent(text));
+                    window.location.replace('http://127.0.0.1:{port}/auth?nonce={session_nonce}&data=' + encodeURIComponent(text));
                     return;
                 }}
                 var pres = document.getElementsByTagName('pre');
                 for (var i = 0; i < pres.length; i++) {{
                     var pText = pres[i].innerText || pres[i].textContent || '';
                     if (pText && pText.indexOf('authorizationCode') !== -1) {{
-                        window.location.replace('http://127.0.0.1:{port}/auth?data=' + encodeURIComponent(pText));
+                        window.location.replace('http://127.0.0.1:{port}/auth?nonce={session_nonce}&data=' + encodeURIComponent(pText));
                         return;
                     }}
                 }}
@@ -415,21 +440,25 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
             }
         }
 
-        // 2. Intercepta o redirecionamento local do script
+        // 2. Intercepta o redirecionamento local do script validando o nonce de sessão
         if nav_url.host_str() == Some("127.0.0.1") || nav_url.host_str() == Some("localhost") {
-            for (k, v) in nav_url.query_pairs() {
-                if (k == "data" || k == "code" || k == "authorizationCode") && !v.is_empty() {
-                    let mut lock = captured_for_nav.lock().unwrap();
-                    if lock.is_none() {
-                        *lock = Some(v.to_string());
+            let has_nonce = nav_url.query_pairs().any(|(k, v)| k == "nonce" && v == nonce_for_nav);
+            if has_nonce {
+                for (k, v) in nav_url.query_pairs() {
+                    if (k == "data" || k == "code" || k == "authorizationCode") && !v.is_empty() {
+                        let mut lock = captured_for_nav.lock().unwrap();
+                        if lock.is_none() {
+                            *lock = Some(v.to_string());
+                        }
+                        return false;
                     }
-                    return false;
                 }
             }
         }
 
         true
     })
+
     .build()
     .context("falha ao abrir a janela de login")?;
 
@@ -926,6 +955,10 @@ fn catalog_cache_path() -> Result<PathBuf> {
 
 pub fn load_cached_engine_catalog() -> Option<Vec<EngineBlob>> {
     let path = catalog_cache_path().ok()?;
+    load_cached_engine_catalog_from(&path)
+}
+
+pub fn load_cached_engine_catalog_from(path: &std::path::Path) -> Option<Vec<EngineBlob>> {
     if !path.exists() {
         return None;
     }
@@ -940,6 +973,15 @@ pub fn load_cached_engine_catalog() -> Option<Vec<EngineBlob>> {
 
 pub fn save_cached_engine_catalog(engines: &[EngineBlob]) -> Result<()> {
     let path = catalog_cache_path()?;
+    save_cached_engine_catalog_to(&path, engines)
+}
+
+pub fn save_cached_engine_catalog_to(path: &std::path::Path, engines: &[EngineBlob]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -949,7 +991,15 @@ pub fn save_cached_engine_catalog(engines: &[EngineBlob]) -> Result<()> {
         engines: engines.to_vec(),
     };
     let json = serde_json::to_string_pretty(&cache)?;
-    fs::write(path, json)?;
+    let tmp_path = path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+    fs::write(&tmp_path, json)?;
+    if fs::rename(&tmp_path, path).is_err() {
+        let _ = fs::remove_file(path);
+        if fs::rename(&tmp_path, path).is_err() {
+            fs::copy(&tmp_path, path)?;
+            let _ = fs::remove_file(&tmp_path);
+        }
+    }
     Ok(())
 }
 
@@ -1082,6 +1132,9 @@ mod tests {
 
     #[test]
     fn test_catalog_cache_save_and_load() {
+        let temp_dir = std::env::temp_dir().join(format!("test_engine_cat_{}", uuid::Uuid::new_v4()));
+        let test_cache_path = temp_dir.join("engine_catalog_cache.json");
+
         let sample = vec![
             EngineBlob {
                 name: "Linux_Unreal_Engine_5.5.4.zip".into(),
@@ -1094,12 +1147,14 @@ mod tests {
             }
         ];
 
-        assert!(save_cached_engine_catalog(&sample).is_ok());
-        let loaded = load_cached_engine_catalog();
+        assert!(save_cached_engine_catalog_to(&test_cache_path, &sample).is_ok());
+        let loaded = load_cached_engine_catalog_from(&test_cache_path);
         assert!(loaded.is_some());
         let blobs = loaded.unwrap();
         assert_eq!(blobs.len(), 1);
         assert_eq!(blobs[0].version, "5.5.4");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     #[test]

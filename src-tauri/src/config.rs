@@ -19,6 +19,10 @@ fn default_rhi_mode() -> String {
     "auto".to_string()
 }
 
+fn default_auto_check_updates() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub engines: Vec<EngineInstall>,
@@ -29,16 +33,26 @@ pub struct AppConfig {
     pub rhi_mode: String,
     #[serde(default)]
     pub project_rhi_overrides: HashMap<String, String>,
+    #[serde(default = "default_auto_check_updates")]
+    pub auto_check_updates: bool,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
+        let mut project_dirs = Vec::new();
+        if let Some(docs) = dirs::document_dir() {
+            let unreal_projects = docs.join("Unreal Projects");
+            if unreal_projects.is_dir() {
+                project_dirs.push(unreal_projects.to_string_lossy().to_string());
+            }
+        }
         Self {
             engines: Vec::new(),
-            project_dirs: Vec::new(),
+            project_dirs,
             excluded_projects: Vec::new(),
             rhi_mode: default_rhi_mode(),
             project_rhi_overrides: HashMap::new(),
+            auto_check_updates: true,
         }
     }
 }

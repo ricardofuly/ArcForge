@@ -101,8 +101,21 @@ pub async fn epic_download_and_install(
 }
 
 #[tauri::command]
+#[allow(unused_mut)]
 pub fn list_engines(state: State<AppState>) -> Vec<EngineInstall> {
-    state.config.lock().unwrap().engines.clone()
+    let mut cfg = state.config.lock().unwrap();
+    #[cfg(target_os = "windows")]
+    {
+        if cfg.engines.is_empty() {
+            let auto = engine::auto_detect_installed_engines();
+            if !auto.is_empty() {
+                cfg.engines.extend(auto);
+                let _ = cfg.save();
+                let _ = engine::sync_install_ini(&cfg.engines);
+            }
+        }
+    }
+    cfg.engines.clone()
 }
 
 #[tauri::command]
@@ -221,18 +234,37 @@ pub fn delete_project_from_disk(state: State<AppState>, uproject_path: String) -
     let project_dir = p.parent().ok_or_else(|| "diretório do projeto inválido".to_string())?;
     let canonical_proj = project_dir.canonicalize().map_err(|e| format!("caminho inválido: {e}"))?;
 
-    // Verificações de segurança essenciais para impedir remoção acidental de diretórios críticos
+    // Verificações de segurança estritas para impedir remoção acidental de diretórios críticos
     let root = std::path::Path::new("/");
-    let home = dirs::home_dir();
-
-    if canonical_proj == root {
-        return Err("operação abortada por segurança: não é permitido excluir o diretório raiz '/'".to_string());
+    if canonical_proj == root || canonical_proj.parent().is_none() {
+        return Err("operação abortada por segurança: não é permitido excluir o diretório raiz".to_string());
     }
 
-    if let Some(ref h) = home {
-        if &canonical_proj == h {
-            return Err("operação abortada por segurança: não é permitido excluir o diretório home".to_string());
+    // Proibir exclusão de diretórios padrão de usuário (Home, Desktop, Downloads, Documentos, etc.)
+    let mut protected_dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(h) = dirs::home_dir() { protected_dirs.push(h); }
+    if let Some(d) = dirs::desktop_dir() { protected_dirs.push(d); }
+    if let Some(d) = dirs::document_dir() { protected_dirs.push(d); }
+    if let Some(d) = dirs::download_dir() { protected_dirs.push(d); }
+    if let Some(p) = dirs::picture_dir() { protected_dirs.push(p); }
+    if let Some(a) = dirs::audio_dir() { protected_dirs.push(a); }
+    if let Some(v) = dirs::video_dir() { protected_dirs.push(v); }
+
+    for protected in protected_dirs {
+        if let Ok(canon_prot) = protected.canonicalize() {
+            if canonical_proj == canon_prot {
+                return Err(format!(
+                    "operação abortada por segurança: não é permitido excluir diretórios padrão do usuário ('{}')",
+                    canon_prot.display()
+                ));
+            }
         }
+    }
+
+    // Garante que a pasta contém realmente o arquivo .uproject esperado antes de apagar
+    let uproject_canon = p.canonicalize().map_err(|e| format!("arquivo .uproject inválido: {e}"))?;
+    if !uproject_canon.starts_with(&canonical_proj) {
+        return Err("operação abortada: o arquivo .uproject não pertence ao diretório informado".to_string());
     }
 
     // Exclui a pasta do projeto do disco
@@ -247,6 +279,7 @@ pub fn delete_project_from_disk(state: State<AppState>, uproject_path: String) -
     let _ = cfg.save();
 
     Ok(())
+
 }
 
 #[tauri::command]
@@ -499,12 +532,10 @@ pub fn open_path_in_file_manager(path: String) -> Result<(), String> {
     } else {
         p
     };
-    std::process::Command::new("xdg-open")
-        .arg(target)
-        .spawn()
-        .map_err(|e| format!("falha ao abrir gerenciador de arquivos: {e}"))?;
+    open::that(target).map_err(|e| format!("falha ao abrir gerenciador de arquivos: {e}"))?;
     Ok(())
 }
+
 
 #[tauri::command]
 pub async fn list_vault_items(force_refresh: Option<bool>) -> Result<Vec<crate::vault::VaultItem>, String> {
@@ -605,3 +636,31 @@ pub async fn create_project_from_vault(
 pub fn cancel_vault_download() {
     crate::vault::VAULT_DOWNLOAD_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
+
+#[tauri::command]
+pub async fn check_app_update() -> Result<crate::updater::UpdateInfo, String> {
+    crate::updater::check_for_updates().await
+}
+
+#[tauri::command]
+pub async fn download_and_apply_update(
+    app: tauri::AppHandle,
+    asset_url: String,
+    asset_name: String,
+) -> Result<(), String> {
+    crate::updater::download_and_apply_update(asset_url, asset_name, app).await
+}
+
+#[tauri::command]
+pub fn get_auto_check_updates(state: State<'_, AppState>) -> bool {
+    let cfg = state.config.lock().unwrap();
+    cfg.auto_check_updates
+}
+
+#[tauri::command]
+pub fn set_auto_check_updates(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.auto_check_updates = enabled;
+    cfg.save().map_err(to_err)
+}
+

@@ -7,6 +7,7 @@ mod engine;
 mod epic;
 mod hardware;
 mod project;
+mod updater;
 mod vault;
 
 use config::{AppConfig, AppState};
@@ -70,6 +71,10 @@ fn main() {
             commands::epic_resume_download,
             commands::epic_cancel_download,
             commands::open_path_in_file_manager,
+            commands::check_app_update,
+            commands::download_and_apply_update,
+            commands::get_auto_check_updates,
+            commands::set_auto_check_updates,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação Tauri");

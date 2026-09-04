@@ -216,10 +216,84 @@ pub fn sync_install_ini(engines: &[EngineInstall]) -> Result<()> {
         let _ = std::fs::write(&path, &body);
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        for engine in engines {
+            let is_versioned = engine.version.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false);
+            if is_versioned {
+                let short_ver = short_version(&engine.version);
+                if !short_ver.is_empty() {
+                    let _ = Command::new("reg")
+                        .args(&["add", "HKCU\\Software\\Epic Games\\Unreal Engine\\Builds", "/v", &short_ver, "/t", "REG_SZ", "/d", &engine.path, "/f"])
+                        .output();
+                }
+            }
+            if !engine.id.is_empty() {
+                let _ = Command::new("reg")
+                    .args(&["add", "HKCU\\Software\\Epic Games\\Unreal Engine\\Builds", "/v", &engine.id, "/t", "REG_SZ", "/d", &engine.path, "/f"])
+                    .output();
+            }
+        }
+    }
+
     Ok(())
 }
 
+/// No Windows, procura automaticamente instalações oficiais da Epic Games
+/// em ProgramData (LauncherInstalled.dat) e Program Files (C:\Program Files\Epic Games\UE_*).
+#[allow(dead_code, unused_mut)]
+pub fn auto_detect_installed_engines() -> Vec<EngineInstall> {
+    let mut detected = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        let program_data = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
+        let dat_path = PathBuf::from(program_data).join("Epic/UnrealEngineLauncher/LauncherInstalled.dat");
+        if dat_path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&dat_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(list) = json.get("InstallationList").and_then(|v| v.as_array()) {
+                        for item in list {
+                            if let Some(loc) = item.get("InstallLocation").and_then(|v| v.as_str()) {
+                                if let Ok(install) = detect_engine_in(loc, false) {
+                                    if !detected.iter().any(|d: &EngineInstall| d.path == install.path) {
+                                        detected.push(install);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for drive in ["C", "D", "E"] {
+            let epic_dir = PathBuf::from(format!("{drive}:\\Program Files\\Epic Games"));
+            if epic_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&epic_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                            if name.starts_with("UE_") || name.starts_with("Unreal") {
+                                if let Ok(install) = detect_engine_in(&path.to_string_lossy(), false) {
+                                    if !detected.iter().any(|d: &EngineInstall| d.path == install.path) {
+                                        detected.push(install);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    detected
+}
+
 /// Conta quantas entradas existem dentro do zip, usado para calcular progresso de extração.
+#[cfg(not(target_os = "windows"))]
 fn count_zip_entries(zip_path: &str) -> Result<usize> {
     let output = Command::new("unzip").arg("-l").arg(zip_path).output()
         .with_context(|| "falha ao executar 'unzip -l' — verifique se o pacote 'unzip' está instalado")?;
@@ -240,54 +314,101 @@ pub fn extract_engine_zip(window: &Window, zip_path: &str, dest_dir: &str) -> Re
     let dest = PathBuf::from(dest_dir);
     std::fs::create_dir_all(&dest)?;
 
-    let total_entries = count_zip_entries(zip_path).unwrap_or(1);
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.emit("engine-extract-progress", serde_json::json!({ "percent": 10.0, "currentFile": "Iniciando extração no Windows…" }));
+        // Windows 10 (build 17063+) e Windows 11 incluem tar.exe nativo que extrai .zip diretamente
+        let tar_status = Command::new("tar")
+            .arg("-xf")
+            .arg(zip_path)
+            .arg("-C")
+            .arg(&dest)
+            .status();
 
-    let mut child = Command::new("unzip")
-        .arg("-o") // sobrescreve sem perguntar
-        .arg(zip_path)
-        .arg("-d")
-        .arg(&dest)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| "falha ao iniciar 'unzip' — verifique se está instalado (sudo apt install unzip)")?;
+        let success = match tar_status {
+            Ok(s) => s.success(),
+            Err(_) => {
+                let ps_script = format!(
+                    "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+                    zip_path.replace('\'', "''"),
+                    dest.to_string_lossy().replace('\'', "''")
+                );
+                Command::new("powershell")
+                    .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            }
+        };
 
-    let stdout = child.stdout.take().expect("stdout deveria estar disponível");
-    let reader = BufReader::new(stdout);
-
-    let mut extracted: usize = 0;
-    for line in reader.lines().flatten() {
-        if line.contains("inflating:") || line.contains("extracting:") || line.contains("creating:") {
-            extracted += 1;
-            let percent = ((extracted as f64 / total_entries as f64) * 100.0).min(99.0);
-            let _ = window.emit(
-                "engine-extract-progress",
-                serde_json::json!({ "percent": percent, "currentFile": line.trim() }),
-            );
+        if !success {
+            return Err(anyhow!("a extração do arquivo zip falhou no Windows"));
         }
-    }
 
-    let status = child.wait().with_context(|| "erro aguardando o processo 'unzip'")?;
-    if !status.success() {
-        return Err(anyhow!("a extração falhou (unzip retornou código de erro)"));
-    }
+        let _ = window.emit("engine-extract-progress", serde_json::json!({ "percent": 100.0, "currentFile": "concluído" }));
 
-    let _ = window.emit("engine-extract-progress", serde_json::json!({ "percent": 100.0, "currentFile": "concluído" }));
-
-    // Builds da unrealengine.com/linux normalmente descompactam para uma única pasta raiz
-    // dentro de `dest`. Se detectarmos exatamente uma subpasta contendo "Engine/", usamos ela.
-    if let Ok(entries) = std::fs::read_dir(&dest) {
-        let subdirs: Vec<PathBuf> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect();
-        if subdirs.len() == 1 && subdirs[0].join("Engine").is_dir() {
-            return Ok(subdirs[0].clone());
+        if let Ok(entries) = std::fs::read_dir(&dest) {
+            let subdirs: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            if subdirs.len() == 1 && subdirs[0].join("Engine").is_dir() {
+                return Ok(subdirs[0].clone());
+            }
         }
+        return Ok(dest);
     }
 
-    Ok(dest)
+    #[cfg(not(target_os = "windows"))]
+    {
+        let total_entries = count_zip_entries(zip_path).unwrap_or(1);
+
+        let mut child = Command::new("unzip")
+            .arg("-o") // sobrescreve sem perguntar
+            .arg(zip_path)
+            .arg("-d")
+            .arg(&dest)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| "falha ao iniciar 'unzip' — verifique se está instalado (sudo apt install unzip)")?;
+
+        let stdout = child.stdout.take().expect("stdout deveria estar disponível");
+        let reader = BufReader::new(stdout);
+
+        let mut extracted: usize = 0;
+        for line in reader.lines().flatten() {
+            if line.contains("inflating:") || line.contains("extracting:") || line.contains("creating:") {
+                extracted += 1;
+                let percent = ((extracted as f64 / total_entries as f64) * 100.0).min(99.0);
+                let _ = window.emit(
+                    "engine-extract-progress",
+                    serde_json::json!({ "percent": percent, "currentFile": line.trim() }),
+                );
+            }
+        }
+
+        let status = child.wait().with_context(|| "erro aguardando o processo 'unzip'")?;
+        if !status.success() {
+            return Err(anyhow!("a extração falhou (unzip retornou código de erro)"));
+        }
+
+        let _ = window.emit("engine-extract-progress", serde_json::json!({ "percent": 100.0, "currentFile": "concluído" }));
+
+        if let Ok(entries) = std::fs::read_dir(&dest) {
+            let subdirs: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            if subdirs.len() == 1 && subdirs[0].join("Engine").is_dir() {
+                return Ok(subdirs[0].clone());
+            }
+        }
+
+        Ok(dest)
+    }
 }
 
 /// Abre o editor de uma engine sem nenhum projeto — o Project Browser nativo da Unreal

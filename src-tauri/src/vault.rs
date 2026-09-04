@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use egs_api::api::types::chunk::Chunk;
 use egs_api::api::types::download_manifest::DownloadManifest;
+use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -26,9 +27,13 @@ pub enum VaultItemType {
 pub struct VaultRelease {
     pub id: String,
     pub app_id: String,
+    #[serde(default)]
     pub version_title: String,
+    #[serde(default)]
     pub compatible_apps: Vec<String>,
+    #[serde(default)]
     pub platforms: Vec<String>,
+    #[serde(default)]
     pub date_added: Option<String>,
 }
 
@@ -36,12 +41,18 @@ pub struct VaultRelease {
 pub struct VaultItem {
     pub id: String, // catalog_item_id
     pub title: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub developer: String,
     pub item_type: VaultItemType,
+    #[serde(default)]
     pub thumbnail_url: Option<String>,
+    #[serde(default)]
     pub featured_url: Option<String>,
+    #[serde(default)]
     pub releases: Vec<VaultRelease>,
+    #[serde(default)]
     pub namespace: String,
 }
 
@@ -76,6 +87,10 @@ fn vault_cache_path() -> Result<PathBuf> {
 
 pub fn load_cached_vault() -> Option<Vec<VaultItem>> {
     let path = vault_cache_path().ok()?;
+    load_cached_vault_from(&path)
+}
+
+pub fn load_cached_vault_from(path: &Path) -> Option<Vec<VaultItem>> {
     if !path.exists() {
         return None;
     }
@@ -86,6 +101,15 @@ pub fn load_cached_vault() -> Option<Vec<VaultItem>> {
 
 pub fn save_cached_vault(items: &[VaultItem]) -> Result<()> {
     let path = vault_cache_path()?;
+    save_cached_vault_to(&path, items)
+}
+
+pub fn save_cached_vault_to(path: &Path, items: &[VaultItem]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -95,7 +119,17 @@ pub fn save_cached_vault(items: &[VaultItem]) -> Result<()> {
         items: items.to_vec(),
     };
     let json = serde_json::to_string_pretty(&cache)?;
-    fs::write(path, json)?;
+
+    // Gravação atômica (.tmp + rename) para prevenir corrupção em caso de fechamento abrupto
+    let tmp_path = path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+    fs::write(&tmp_path, json)?;
+    if fs::rename(&tmp_path, path).is_err() {
+        let _ = fs::remove_file(path);
+        if fs::rename(&tmp_path, path).is_err() {
+            fs::copy(&tmp_path, path)?;
+            let _ = fs::remove_file(&tmp_path);
+        }
+    }
     Ok(())
 }
 
@@ -184,112 +218,149 @@ pub async fn fetch_user_vault_items() -> Result<Vec<VaultItem>> {
 
     unique_catalog_ids.sort();
 
-    // 2. Buscar detalhes em lotes de 50 catalogItemIds usando bulk/items
-    let mut all_vault_items: Vec<VaultItem> = Vec::new();
+    // 2. Buscar detalhes em lotes de 50 catalogItemIds usando bulk/items em paralelo
     let chunks: Vec<Vec<String>> = unique_catalog_ids
         .chunks(50)
         .map(|c| c.to_vec())
         .collect();
 
-    for batch in chunks {
-        let query = batch
-            .iter()
-            .map(|id| format!("id={id}"))
-            .collect::<Vec<String>>()
-            .join("&");
+    let batch_results: Vec<Result<Vec<VaultItem>>> = stream::iter(chunks)
+        .map(|batch| {
+            let client = client.clone();
+            let access_token = access_token.clone();
+            async move {
+                let query = batch
+                    .iter()
+                    .map(|id| format!("id={id}"))
+                    .collect::<Vec<String>>()
+                    .join("&");
 
-        let bulk_url = format!(
-            "https://catalog-public-service-prod06.ol.epicgames.com/catalog/api/shared/namespace/ue/bulk/items?{query}"
-        );
+                let bulk_url = format!(
+                    "https://catalog-public-service-prod06.ol.epicgames.com/catalog/api/shared/namespace/ue/bulk/items?{query}"
+                );
 
-        if let Ok(batch_resp) = client.get(&bulk_url).bearer_auth(&access_token).send().await {
-            if batch_resp.status().is_success() {
-                if let Ok(map) = batch_resp.json::<HashMap<String, CatalogItemDetails>>().await {
-                    for (_id, details) in map {
-                        let title = details.title.unwrap_or_else(|| "Sem título".to_string());
-                        let description = details.description.unwrap_or_default();
-                        let developer = details.developer.unwrap_or_else(|| "Epic Games".to_string());
-                        let namespace = details.namespace.unwrap_or_else(|| "ue".to_string());
+                let batch_resp = client
+                    .get(&bulk_url)
+                    .bearer_auth(&access_token)
+                    .send()
+                    .await?;
 
-                        // Determinar tipo do item baseado nas categorias
-                        let categories = details.categories.unwrap_or_default();
-                        let mut item_type = VaultItemType::Other;
-                        for cat in &categories {
-                            let p = cat.path.to_lowercase();
-                            if p.contains("plugin") {
-                                item_type = VaultItemType::Plugin;
-                                break;
-                            } else if p.contains("project") {
-                                item_type = VaultItemType::Project;
-                                break;
-                            } else if p.contains("asset") || p.contains("prop") || p.contains("environment") || p.contains("material") {
-                                item_type = VaultItemType::AssetPack;
-                            }
-                        }
-                        if item_type == VaultItemType::Other && !categories.is_empty() {
+                if !batch_resp.status().is_success() {
+                    return Ok(Vec::new());
+                }
+
+                let map: HashMap<String, CatalogItemDetails> = batch_resp.json().await?;
+                let mut batch_items = Vec::new();
+
+                for (_id, details) in map {
+                    let categories = details.categories.unwrap_or_default();
+
+                    // Ignora itens de engines puras instaláveis
+                    let is_engine = categories.iter().any(|c| {
+                        let path = c.path.to_lowercase();
+                        path.starts_with("engines")
+                    });
+                    if is_engine {
+                        continue;
+                    }
+
+                    let title = details.title.unwrap_or_else(|| "Sem título".to_string());
+                    let description = details.description.unwrap_or_default();
+                    let developer = details.developer.unwrap_or_else(|| "Epic Games".to_string());
+                    let namespace = details.namespace.unwrap_or_else(|| "ue".to_string());
+
+                    // Determinar tipo do item baseado nas categorias
+                    let mut item_type = VaultItemType::Other;
+                    for cat in &categories {
+                        let p = cat.path.to_lowercase();
+                        if p.contains("plugin") {
+                            item_type = VaultItemType::Plugin;
+                            break;
+                        } else if p.contains("project") {
+                            item_type = VaultItemType::Project;
+                            break;
+                        } else if p.contains("asset") || p.contains("prop") || p.contains("environment") || p.contains("material") {
                             item_type = VaultItemType::AssetPack;
                         }
-
-                        // Imagens
-                        let images = details.key_images.unwrap_or_default();
-                        let thumbnail_url = images
-                            .iter()
-                            .find(|img| img.img_type.eq_ignore_ascii_case("Thumbnail"))
-                            .or_else(|| images.iter().find(|img| img.img_type.eq_ignore_ascii_case("Featured")))
-                            .or_else(|| images.iter().find(|img| img.img_type.eq_ignore_ascii_case("Screenshot")))
-                            .or_else(|| images.first())
-                            .map(|img| img.url.clone());
-
-                        let featured_url = images
-                            .iter()
-                            .find(|img| img.img_type.eq_ignore_ascii_case("Featured"))
-                            .or_else(|| images.iter().find(|img| img.img_type.eq_ignore_ascii_case("Screenshot")))
-                            .map(|img| img.url.clone());
-
-                        // Releases
-                        let mut releases: Vec<VaultRelease> = details
-                            .release_info
-                            .unwrap_or_default()
-                            .into_iter()
-                            .filter_map(|r| {
-                                let app_id = r.app_id?;
-                                Some(VaultRelease {
-                                    id: r.id.unwrap_or_else(|| app_id.clone()),
-                                    app_id,
-                                    version_title: r.version_title.unwrap_or_default(),
-                                    compatible_apps: r.compatible_apps.unwrap_or_default(),
-                                    platforms: r.platform.unwrap_or_default(),
-                                    date_added: r.date_added,
-                                })
-                            })
-                            .collect();
-
-                        // Ordenar releases para colocar as mais novas primeiro
-                        releases.sort_by(|a, b| b.app_id.cmp(&a.app_id));
-
-                        all_vault_items.push(VaultItem {
-                            id: details.id,
-                            title,
-                            description,
-                            developer,
-                            item_type,
-                            thumbnail_url,
-                            featured_url,
-                            releases,
-                            namespace,
-                        });
                     }
+                    if item_type == VaultItemType::Other && !categories.is_empty() {
+                        item_type = VaultItemType::AssetPack;
+                    }
+
+                    // Imagens
+                    let images = details.key_images.unwrap_or_default();
+                    let thumbnail_url = images
+                        .iter()
+                        .find(|img| img.img_type.eq_ignore_ascii_case("Thumbnail"))
+                        .or_else(|| images.iter().find(|img| img.img_type.eq_ignore_ascii_case("Featured")))
+                        .or_else(|| images.iter().find(|img| img.img_type.eq_ignore_ascii_case("Screenshot")))
+                        .or_else(|| images.first())
+                        .map(|img| img.url.clone());
+
+                    let featured_url = images
+                        .iter()
+                        .find(|img| img.img_type.eq_ignore_ascii_case("Featured"))
+                        .or_else(|| images.iter().find(|img| img.img_type.eq_ignore_ascii_case("Screenshot")))
+                        .map(|img| img.url.clone());
+
+                    // Releases
+                    let mut releases: Vec<VaultRelease> = details
+                        .release_info
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|r| {
+                            let app_id = r.app_id?;
+                            Some(VaultRelease {
+                                id: r.id.unwrap_or_else(|| app_id.clone()),
+                                app_id,
+                                version_title: r.version_title.unwrap_or_default(),
+                                compatible_apps: r.compatible_apps.unwrap_or_default(),
+                                platforms: r.platform.unwrap_or_default(),
+                                date_added: r.date_added,
+                            })
+                        })
+                        .collect();
+
+                    // Ordenar releases para colocar as mais novas primeiro
+                    releases.sort_by(|a, b| b.app_id.cmp(&a.app_id));
+
+                    batch_items.push(VaultItem {
+                        id: details.id,
+                        title,
+                        description,
+                        developer,
+                        item_type,
+                        thumbnail_url,
+                        featured_url,
+                        releases,
+                        namespace,
+                    });
                 }
+
+                Ok(batch_items)
             }
+        })
+        .buffer_unordered(8)
+        .collect()
+        .await;
+
+    let mut all_vault_items: Vec<VaultItem> = Vec::new();
+    for r in batch_results {
+        if let Ok(batch_items) = r {
+            all_vault_items.extend(batch_items);
         }
     }
 
-    all_vault_items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-    let _ = save_cached_vault(&all_vault_items);
+    if !all_vault_items.is_empty() {
+        all_vault_items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        let _ = save_cached_vault(&all_vault_items);
+    }
+
     Ok(all_vault_items)
 }
 
 /// Retorna a lista de itens do vault. Se force_refresh for falso e houver cache, responde instantaneamente.
+/// Em caso de erro de rede ou de API, recorre ao cache local se este existir.
 pub async fn list_vault_items(force_refresh: bool) -> Result<Vec<VaultItem>> {
     if !force_refresh {
         if let Some(cached) = load_cached_vault() {
@@ -298,7 +369,18 @@ pub async fn list_vault_items(force_refresh: bool) -> Result<Vec<VaultItem>> {
             }
         }
     }
-    fetch_user_vault_items().await
+
+    match fetch_user_vault_items().await {
+        Ok(items) => Ok(items),
+        Err(e) => {
+            if let Some(cached) = load_cached_vault() {
+                if !cached.is_empty() {
+                    return Ok(cached);
+                }
+            }
+            Err(e)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -571,7 +653,7 @@ pub async fn download_and_install_vault_item(
         None
     };
 
-    // 5. Montar cada arquivo gravando os pedaços descompactados
+    // 5. Montar cada arquivo gravando os pedaços descompactados com sanitização de segurança e buffer de I/O
     for (filename, file_manifest) in files_map {
         let relative_path = if let Some(ref prefix) = strip_prefix {
             if filename.starts_with(prefix) {
@@ -584,12 +666,22 @@ pub async fn download_and_install_vault_item(
             filename.clone()
         };
 
-        let file_dest = target_dest_dir.join(&relative_path);
+        // Prevenção estrita contra Path Traversal / Zip Slip
+        let safe_rel = match sanitize_relative_path(&relative_path) {
+            Some(p) => p,
+            None => {
+                eprintln!("[VAULT SEGURANÇA] Caminho perigoso ou inválido ignorado: {}", filename);
+                continue;
+            }
+        };
+
+        let file_dest = target_dest_dir.join(safe_rel);
         if let Some(parent) = file_dest.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let mut out_file = fs::File::create(&file_dest)?;
+        let out_file = fs::File::create(&file_dest)?;
+        let mut writer = std::io::BufWriter::with_capacity(64 * 1024, out_file);
         for part in &file_manifest.file_chunk_parts {
             let chunk_raw_path = temp_chunks_dir.join(format!("{}.raw", part.guid));
             if chunk_raw_path.exists() {
@@ -597,11 +689,13 @@ pub async fn download_and_install_vault_item(
                 let offset = part.offset as usize;
                 let size = part.size as usize;
                 if offset + size <= chunk_data.len() {
-                    out_file.write_all(&chunk_data[offset..offset + size])?;
+                    writer.write_all(&chunk_data[offset..offset + size])?;
                 }
             }
         }
+        writer.flush()?;
     }
+
 
     // Se o alvo for criação de novo projeto e havia um uproject, renomeia para o novo nome
     if let VaultInstallTarget::NewProject { project_name, parent_dir: _, engine_id } = &target {
@@ -646,12 +740,71 @@ pub async fn download_and_install_vault_item(
     Ok(target_dest_dir)
 }
 
+/// Sanitiza um caminho relativo oriundo do manifesto para impedir vulnerabilidades de Path Traversal (Zip Slip).
+/// Retorna None caso o caminho tente retroceder (..), acessar a raiz (/ ou drive C:), ou contenha caracteres proibidos.
+pub fn sanitize_relative_path(path: &str) -> Option<PathBuf> {
+    let normalized = path.replace('\\', "/");
+    let mut clean = PathBuf::new();
+
+    for component in Path::new(&normalized).components() {
+        match component {
+            std::path::Component::Normal(c) => {
+                let s = c.to_string_lossy();
+                // Proibir caracteres de controle e especificadores de drive (ex: C:)
+                if s.contains(':') || s.contains('\0') {
+                    return None;
+                }
+                clean.push(c);
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                // Tentativa de escapar da raiz ou subir diretórios rejeitada
+                return None;
+            }
+        }
+    }
+
+    if clean.as_os_str().is_empty() {
+        None
+    } else {
+        Some(clean)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn test_sanitize_relative_path_safety() {
+        // Caminhos válidos
+        assert_eq!(
+            sanitize_relative_path("Source/MyPlugin/MyPlugin.Build.cs"),
+            Some(PathBuf::from("Source/MyPlugin/MyPlugin.Build.cs"))
+        );
+        assert_eq!(
+            sanitize_relative_path("Content\\Textures\\Icon.png"),
+            Some(PathBuf::from("Content/Textures/Icon.png"))
+        );
+
+        // Tentativas de Path Traversal (Zip Slip)
+        assert_eq!(sanitize_relative_path("../../../etc/passwd"), None);
+        assert_eq!(sanitize_relative_path("foo/../../bar"), None);
+        assert_eq!(sanitize_relative_path("/root/secrets.txt"), None);
+        assert_eq!(sanitize_relative_path("C:\\Windows\\System32\\cmd.exe"), None);
+        assert_eq!(sanitize_relative_path("C:autoexec.bat"), None);
+        assert_eq!(sanitize_relative_path(".."), None);
+        assert_eq!(sanitize_relative_path(""), None);
+        assert_eq!(sanitize_relative_path("./"), None);
+    }
+
+    #[test]
     fn test_vault_cache_save_and_load() {
+        let temp_dir = std::env::temp_dir().join(format!("test_vault_{}", uuid::Uuid::new_v4()));
+        let test_cache_path = temp_dir.join("vault_cache.json");
+
         let item = VaultItem {
             id: "test_item_123".to_string(),
             title: "Test Plugin".to_string(),
@@ -671,11 +824,21 @@ mod tests {
             namespace: "ue".to_string(),
         };
 
-        assert!(save_cached_vault(&[item.clone()]).is_ok());
-        let loaded = load_cached_vault().expect("deve carregar cache");
+        assert!(save_cached_vault_to(&test_cache_path, &[item.clone()]).is_ok());
+        let loaded = load_cached_vault_from(&test_cache_path).expect("deve carregar cache");
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].title, "Test Plugin");
         assert_eq!(loaded[0].releases.len(), 1);
         assert_eq!(loaded[0].releases[0].app_id, "TestPlugin_5.5");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_live_fetch_user_vault_items() {
+        let res = fetch_user_vault_items().await;
+        println!("Live fetch result: {:?}", res.as_ref().map(|v| v.len()));
+        assert!(res.is_ok());
     }
 }

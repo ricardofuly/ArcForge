@@ -38,8 +38,22 @@ pub fn scan_directory_for_projects(
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !matches!(name.as_ref(), "Intermediate" | "Saved" | "Binaries" | "DerivedDataCache" | ".git" | "node_modules")
+            !matches!(
+                name.as_ref(),
+                "Intermediate"
+                    | "Saved"
+                    | "Binaries"
+                    | "Build"
+                    | "DerivedDataCache"
+                    | ".git"
+                    | ".vs"
+                    | ".idea"
+                    | "node_modules"
+                    | "target"
+                    | ".gemini"
+            )
         });
+
 
     for entry in walker.flatten() {
         let path = entry.path();
@@ -163,6 +177,7 @@ pub enum Ide {
     VsCode,
     Rider,
     CLion,
+    VisualStudio,
 }
 
 impl Ide {
@@ -171,6 +186,7 @@ impl Ide {
             "code" => Ok(Ide::VsCode),
             "rider" => Ok(Ide::Rider),
             "clion" => Ok(Ide::CLion),
+            "vs" | "visualstudio" => Ok(Ide::VisualStudio),
             other => Err(anyhow!("IDE desconhecida: {other}")),
         }
     }
@@ -180,6 +196,7 @@ impl Ide {
             Ide::VsCode => "code",
             Ide::Rider => "rider",
             Ide::CLion => "clion",
+            Ide::VisualStudio => "vs",
         }
     }
 
@@ -188,6 +205,7 @@ impl Ide {
             Ide::VsCode => "VS Code",
             Ide::Rider => "Rider",
             Ide::CLion => "CLion",
+            Ide::VisualStudio => "Visual Studio",
         }
     }
 
@@ -413,6 +431,37 @@ impl Ide {
                     }
                 }
             }
+            Ide::VisualStudio => {
+                // 1. Binário no PATH
+                for bin in ["devenv", "devenv.exe", "devenv.com"] {
+                    if check_command_in_path(bin) {
+                        return Some(IdeLaunchCommand {
+                            program: bin.to_string(),
+                            args: Vec::new(),
+                            runner_name: "Nativo".to_string(),
+                        });
+                    }
+                }
+
+                // 2. Instalações comuns do Visual Studio no Windows
+                let vs_paths = [
+                    "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/devenv.exe",
+                    "C:/Program Files/Microsoft Visual Studio/2022/Professional/Common7/IDE/devenv.exe",
+                    "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/Common7/IDE/devenv.exe",
+                    "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/Common7/IDE/devenv.exe",
+                    "C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/Common7/IDE/devenv.exe",
+                    "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/Common7/IDE/devenv.exe",
+                ];
+                for path in vs_paths {
+                    if Path::new(path).is_file() {
+                        return Some(IdeLaunchCommand {
+                            program: path.to_string(),
+                            args: Vec::new(),
+                            runner_name: "Windows".to_string(),
+                        });
+                    }
+                }
+            }
         }
 
         None
@@ -462,7 +511,7 @@ fn is_flatpak_app_installed(app_id: &str) -> bool {
 
 /// Retorna a lista de IDEs conhecidas e se foram detectadas no sistema.
 pub fn list_detected_ides() -> Vec<IdeInfo> {
-    let all = [Ide::VsCode, Ide::Rider, Ide::CLion];
+    let all = [Ide::VsCode, Ide::Rider, Ide::CLion, Ide::VisualStudio];
     all.iter()
         .map(|ide| {
             let cmd = ide.resolve_launch_command();
@@ -479,7 +528,7 @@ pub fn list_detected_ides() -> Vec<IdeInfo> {
 /// Abre a pasta do projeto na IDE escolhida. Pro VS Code, prioriza um arquivo
 /// `.code-workspace` na raiz do projeto (gerado pelo UBT via "Generate Project Files"),
 /// já que ele configura include paths e build tasks corretamente; sem isso, cai pra
-/// abrir a pasta crua. Para o Rider, prioriza o `.uproject` ou `.sln`.
+/// abrir a pasta crua. Para o Rider e Visual Studio, prioriza o `.sln` ou `.uproject`.
 pub fn open_in_ide(project_dir: &str, ide: Ide) -> Result<()> {
     let dir = Path::new(project_dir);
     if !dir.is_dir() {
@@ -496,13 +545,13 @@ pub fn open_in_ide(project_dir: &str, ide: Ide) -> Result<()> {
                 })
             })
             .unwrap_or_else(|| dir.to_path_buf())
-    } else if ide == Ide::Rider {
+    } else if ide == Ide::Rider || ide == Ide::VisualStudio {
         std::fs::read_dir(dir)
             .ok()
             .and_then(|entries| {
                 entries.flatten().find_map(|e| {
                     let p = e.path();
-                    (p.extension().map(|ext| ext == "uproject" || ext == "sln").unwrap_or(false)).then_some(p)
+                    (p.extension().map(|ext| ext == "sln" || ext == "uproject").unwrap_or(false)).then_some(p)
                 })
             })
             .unwrap_or_else(|| dir.to_path_buf())
@@ -512,7 +561,7 @@ pub fn open_in_ide(project_dir: &str, ide: Ide) -> Result<()> {
 
     let cmd = ide.resolve_launch_command().ok_or_else(|| {
         anyhow!(
-            "não encontrei o {} instalado no sistema. Verifique se está no PATH, instalado via Flatpak, JetBrains Toolbox ou Snap.",
+            "não encontrei o {} instalado no sistema. Verifique se está instalado e no PATH do sistema.",
             ide.friendly_name()
         )
     })?;
@@ -987,9 +1036,10 @@ mod tests {
     #[test]
     fn test_detect_ides() {
         let ides = list_detected_ides();
-        assert_eq!(ides.len(), 3);
+        assert_eq!(ides.len(), 4);
         assert!(ides.iter().any(|i| i.id == "code"));
         assert!(ides.iter().any(|i| i.id == "rider"));
         assert!(ides.iter().any(|i| i.id == "clion"));
+        assert!(ides.iter().any(|i| i.id == "vs"));
     }
 }

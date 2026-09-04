@@ -63,7 +63,10 @@
 
       <div class="sidebar-footer">
         <span class="sidebar-meta" id="sidebar-stats">0 engines • 0 projetos</span>
-        <span class="sidebar-meta">Unreal Launcher v0.1.0</span>
+        <button class="sidebar-meta-btn" id="btn-check-updates" title="Clique para verificar atualizações">
+          <span>Unreal Launcher v0.1.0</span>
+          <span class="sidebar-update-icon">🔄</span>
+        </button>
       </div>
     </aside>
 
@@ -72,7 +75,7 @@
       <header class="top-bar">
         <!-- Seção do Usuário Epic Games (Perfil) -->
         <div class="user-profile-section">
-          <button class="btn-icon-round" id="btn-notifications" title="Notificações">
+          <button class="btn-icon-round" id="btn-notifications" title="Notificações & Atualizações">
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
               <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
             </svg>
@@ -85,6 +88,12 @@
             <button id="btn-epic-logout" class="user-btn-action" hidden>Sair</button>
           </div>
         </div>
+
+        <!-- Botão Pill de Live Update quando houver atualização disponível -->
+        <button class="btn-update-pill" id="btn-update-available" hidden title="Nova versão disponível! Clique para ver detalhes e atualizar">
+          <span class="update-pulse-dot"></span>
+          <span id="btn-update-pill-text">🚀 Atualização disponível!</span>
+        </button>
 
         <!-- Widget de Download Ativo na Topbar (igual à referência) -->
         <div class="top-download-container" id="top-download-container">
@@ -692,6 +701,72 @@
         <button class="btn btn-ghost" id="btn-cancel-vault-modal">Cancelar</button>
         <button class="btn btn-primary" id="btn-confirm-vault-action">
           <span>Baixar e Instalar</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ATUALIZAÇÃO DO APLICATIVO (LIVE UPDATE) -->
+  <div id="modal-app-update" class="modal-overlay" hidden>
+    <div class="modal-card modal-update-card">
+      <div class="modal-header">
+        <div class="modal-header-icon-wrap update-header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </div>
+        <div>
+          <h3 class="modal-title">Atualização do Unreal Launcher</h3>
+          <p class="modal-subtitle" id="update-modal-subtitle">Uma nova versão está disponível para download.</p>
+        </div>
+        <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
+      </div>
+
+      <div class="update-version-banner">
+        <div class="update-version-badge current">
+          <small>Versão Atual</small>
+          <strong id="update-current-version">v0.1.0</strong>
+        </div>
+        <div class="update-version-arrow">➔</div>
+        <div class="update-version-badge new">
+          <small>Nova Versão</small>
+          <strong id="update-latest-version">v0.2.0</strong>
+        </div>
+        <div class="update-meta-info">
+          <span id="update-release-date">Data: --/--/----</span>
+          <span id="update-release-size">Tamanho: ~0 MB</span>
+        </div>
+      </div>
+
+      <div class="update-notes-container">
+        <label class="form-label">Novidades e Mudanças desta Versão:</label>
+        <div class="update-notes-content" id="update-release-notes">
+          Carregando notas da versão...
+        </div>
+      </div>
+
+      <!-- Progresso de Download / Instalação -->
+      <div id="update-progress-container" class="update-progress-box" hidden>
+        <div class="update-progress-header">
+          <span id="update-progress-status" class="update-status-badge">Baixando atualização…</span>
+          <span id="update-progress-percent" class="update-percent-text">0%</span>
+        </div>
+        <div class="steam-progress-track">
+          <div id="update-progress-bar" class="steam-progress-fill" style="width: 0%;"></div>
+        </div>
+        <div class="update-progress-footer">
+          <span id="update-progress-bytes">0 MB / 0 MB</span>
+          <span id="update-progress-speed">0 MB/s</span>
+        </div>
+      </div>
+
+      <div class="modal-actions update-modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-remind-later-update">Lembrar Mais Tarde</button>
+        <button type="button" class="btn btn-secondary" id="btn-view-github-release">Ver no GitHub ↗</button>
+        <button type="button" class="btn btn-primary" id="btn-start-live-update">
+          <span>Atualizar Agora</span>
         </button>
       </div>
     </div>
