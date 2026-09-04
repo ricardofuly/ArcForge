@@ -1,6 +1,6 @@
 [package]
 name = "unreal-launcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "Launcher para gerenciar instalações da Unreal Engine e projetos no Linux"
 edition = "2021"
 
