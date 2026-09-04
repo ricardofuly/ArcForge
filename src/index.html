@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unreal Launcher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">U</span>
+        <div class="brand-text">
+          <strong>Unreal Launcher</strong>
+          <small>Fuly Games</small>
+        </div>
+      </div>
+
+      <nav class="nav-group">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="nav-icon">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
+            </svg>
+          </span>
+          Início
+        </button>
+        <button class="nav-item" data-view="engines">
+          <span class="nav-icon">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
+            </svg>
+          </span>
+          Engines
+        </button>
+        <button class="nav-item" data-view="projects">
+          <span class="nav-icon">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/>
+            </svg>
+          </span>
+          Projetos
+        </button>
+        <button class="nav-item" id="nav-btn-vault" data-view="vault">
+          <span class="nav-icon">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
+              <path fill-rule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd" />
+            </svg>
+          </span>
+          Biblioteca
+        </button>
+        <button class="nav-item" id="nav-btn-downloads" data-view="downloads">
+          <span class="nav-icon">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+          </span>
+          Downloads
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="sidebar-meta" id="sidebar-stats">0 engines • 0 projetos</span>
+        <span class="sidebar-meta">Unreal Launcher v0.1.0</span>
+      </div>
+    </aside>
+
+    <div class="main-wrapper">
+      <!-- TOPBAR INTEGRADA (REFERÊNCIA VISUAL) -->
+      <header class="top-bar">
+        <!-- Seção do Usuário Epic Games (Perfil) -->
+        <div class="user-profile-section">
+          <button class="btn-icon-round" id="btn-notifications" title="Notificações">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+            </svg>
+          </button>
+
+          <div class="user-pill" id="user-pill-box">
+            <div class="user-avatar" id="user-avatar">?</div>
+            <span class="user-name-text" id="user-display-name">Epic: Conectando…</span>
+            <button id="btn-epic-login" class="user-btn-action" hidden>Entrar</button>
+            <button id="btn-epic-logout" class="user-btn-action" hidden>Sair</button>
+          </div>
+        </div>
+
+        <!-- Widget de Download Ativo na Topbar (igual à referência) -->
+        <div class="top-download-container" id="top-download-container">
+          <!-- Estado Ocioso: Botão elegante para abrir catálogo -->
+          <button class="btn-topbar-download" id="btn-open-epic-downloader">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15">
+              <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+            <span>Baixar Unreal Engine ⤓</span>
+          </button>
+
+          <!-- Estado Ativo (Pill Vermelha idêntica à referência visual) -->
+          <div class="download-pill-active" id="top-download-active" hidden>
+            <div class="dl-circle-icon">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </div>
+            <div class="dl-details">
+              <span class="dl-label-title" id="top-dl-title">Baixando Unreal Engine…</span>
+              <div class="dl-mini-track">
+                <div class="dl-mini-fill" id="top-dl-bar" style="width: 0%"></div>
+              </div>
+              <span class="dl-label-sub" id="top-dl-sub">Iniciando…</span>
+            </div>
+            <span class="dl-percent-badge" id="top-dl-percent">0%</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="content-area">
+        <!-- VIEW: DASHBOARD (INÍCIO COM A ESTRUTURA EXATA DA IMAGEM DE REFERÊNCIA) -->
+        <section id="view-dashboard" class="view active">
+          <!-- SEÇÃO SUPERIOR: CARROSSEL DE ENGINES (ESTILO "SERVIDOR" DA REFERÊNCIA) -->
+          <div class="engine-horizontal-container">
+            <div class="section-header">
+              <div class="section-title-wrap">
+                <h2>Instalações da Engine</h2>
+                <p>Versões prontas para uso no seu sistema Linux.</p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-ghost btn-small" id="btn-add-engine">+ Registrar pasta</button>
+              </div>
+            </div>
+
+            <div id="dashboard-engine-carousel" class="engine-carousel"></div>
+            <div id="dashboard-engine-empty" class="empty-state" hidden>
+              <p><strong>Nenhuma engine registrada ainda.</strong></p>
+              <p>Clique em <em>"Baixar Unreal Engine ⤓"</em> na barra superior ou aponte para uma pasta extraída.</p>
+            </div>
+          </div>
+
+          <!-- SEÇÃO INFERIOR: CARDS HERO DE PROJETOS (ESTILO "NOTÍCIAS" DA REFERÊNCIA) -->
+          <div class="projects-section-container">
+            <div class="section-header">
+              <div class="section-title-wrap">
+                <h2>Projetos Recentes</h2>
+                <p>Seus projetos da Unreal Engine encontrados nas pastas monitoradas.</p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-ghost btn-small" id="btn-rescan">↻ Reescanear</button>
+                <button class="btn btn-ghost btn-small" id="btn-add-project-dir">+ Adicionar pasta</button>
+                <button class="btn btn-primary btn-small" id="btn-dash-create-project">⚡ Criar Projeto</button>
+              </div>
+            </div>
+
+            <div id="dashboard-watched-dirs" class="chip-row"></div>
+            <div id="dashboard-project-list" class="project-hero-list"></div>
+            <div id="dashboard-project-empty" class="empty-state" hidden>
+              <p><strong>Nenhum projeto encontrado.</strong></p>
+              <p>Adicione uma pasta onde você guarda seus projetos Unreal (ex: <code>~/UnrealProjects</code>) ou crie um novo agora.</p>
+              <button class="btn btn-primary btn-small" id="btn-dash-empty-create-project" style="margin-top: 10px;">⚡ Criar Novo Projeto</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW: ENGINES (VISUALIZAÇÃO COMPLETA) -->
+        <section id="view-engines" class="view">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <h1>Instalações da Engine</h1>
+              <p>Gerencie todas as versões instaladas no seu computador.</p>
+            </div>
+          </div>
+          <div id="engine-list" class="card-grid"></div>
+          <div id="engine-empty" class="empty-state" hidden>
+            <p>Nenhuma engine registrada.</p>
+          </div>
+        </section>
+
+        <!-- VIEW: PROJECTS (VISUALIZAÇÃO COMPLETA) -->
+        <section id="view-projects" class="view">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <h1>Todos os Projetos</h1>
+              <p>Lista de todos os projetos <code>.uproject</code> monitorados.</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-ghost btn-small" id="btn-rescan-projects-tab">↻ Atualizar</button>
+              <button class="btn btn-ghost btn-small" id="btn-add-folder-projects-tab">+ Adicionar pasta</button>
+              <button class="btn btn-primary btn-small" id="btn-create-project-trigger">⚡ Criar Projeto</button>
+            </div>
+          </div>
+          <div id="gpu-compatibility-banner" class="gpu-compat-banner" hidden>
+            <div class="gpu-compat-icon">🛡️</div>
+            <div class="gpu-compat-text">
+              <strong id="gpu-compat-title">Modo de Segurança Vulkan SM5 Ativado</strong>
+              <p id="gpu-compat-desc">Sua GPU AMD Polaris requer Vulkan SM5 para evitar travamentos nos shaders. O launcher aplica o parâmetro <code>-sm5</code> automaticamente ao iniciar.</p>
+            </div>
+          </div>
+          <div id="watched-dirs" class="chip-row"></div>
+          <div id="project-list" class="project-hero-list"></div>
+          <div id="project-empty" class="empty-state" hidden>
+            <p>Nenhum projeto encontrado.</p>
+            <button class="btn btn-primary btn-small" id="btn-projects-empty-create" style="margin-top: 10px;">⚡ Criar Novo Projeto</button>
+          </div>
+        </section>
+
+        <!-- VIEW: VAULT / BIBLIOTECA DE PLUGINS E CONTEÚDOS -->
+        <section id="view-vault" class="view">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <h1>Biblioteca Unreal (Vault)</h1>
+              <p>Plugins, projetos e pacotes adquiridos no Unreal Marketplace / Fab vinculados à sua conta Epic Games.</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-ghost btn-small" id="btn-refresh-vault">↻ Sincronizar</button>
+            </div>
+          </div>
+
+          <!-- Barra de busca e filtros do Vault -->
+          <div class="vault-toolbar">
+            <div class="search-box" style="flex: 1; max-width: 480px;">
+              <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+              </svg>
+              <input type="text" id="vault-search-input" class="catalog-search-input" placeholder="Buscar plugin, projeto ou asset..." />
+            </div>
+
+            <div class="filter-tabs" id="vault-filter-tabs">
+              <button class="filter-tab active" data-filter="all">Todos</button>
+              <button class="filter-tab" data-filter="plugin">Plugins</button>
+              <button class="filter-tab" data-filter="project">Projetos</button>
+              <button class="filter-tab" data-filter="asset_pack">Conteúdos</button>
+            </div>
+          </div>
+
+          <div id="vault-loading" class="empty-state" hidden>
+            <p><strong>Carregando sua biblioteca da Unreal Engine…</strong></p>
+            <p class="modal-subtitle">Conectando aos servidores da Epic Games.</p>
+          </div>
+
+          <div id="vault-empty" class="empty-state" hidden>
+            <p><strong>Nenhum item encontrado.</strong></p>
+            <p class="modal-subtitle">Verifique o termo pesquisado ou sincronize a biblioteca com sua conta Epic.</p>
+          </div>
+
+          <div id="vault-grid" class="vault-grid"></div>
+        </section>
+
+        <!-- VIEW: DOWNLOADS (STEAM STYLE) -->
+        <section id="view-downloads" class="view">
+          <!-- Top Steam stats bar -->
+          <div class="steam-dl-header">
+            <div class="steam-dl-title-wrap">
+              <h1>Downloads</h1>
+              <p class="steam-dl-subtitle">Gerenciador de transferências e instalações oficiais da Epic Games</p>
+            </div>
+
+            <div class="steam-metrics">
+              <div class="steam-metric-item">
+                <div class="metric-top">
+                  <span class="metric-indicator network-indicator"></span>
+                  <span class="metric-label">NETWORK</span>
+                </div>
+                <span class="metric-value" id="steam-net-speed">0 bps</span>
+              </div>
+
+              <div class="steam-metric-item">
+                <div class="metric-top">
+                  <span class="metric-indicator peak-indicator"></span>
+                  <span class="metric-label">PEAK</span>
+                </div>
+                <span class="metric-value" id="steam-peak-speed">0 bps</span>
+              </div>
+
+              <div class="steam-metric-item">
+                <div class="metric-top">
+                  <span class="metric-indicator disk-indicator"></span>
+                  <span class="metric-label">DISK USAGE</span>
+                </div>
+                <span class="metric-value" id="steam-disk-speed">0 bps</span>
+              </div>
+
+              <button class="btn-icon-round" id="btn-steam-gear" title="Opções de Download">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+                  <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Steam-like Real-time Canvas Graph -->
+          <div class="steam-graph-container">
+            <div class="steam-graph-legends">
+              <span class="legend-item"><span class="legend-dot network"></span> NETWORK (Download)</span>
+              <span class="legend-item"><span class="legend-dot disk"></span> DISK USAGE (Gravação)</span>
+            </div>
+            <canvas id="steam-graph-canvas" height="150"></canvas>
+          </div>
+
+          <!-- Queue Header -->
+          <div class="steam-queue-header">
+            <h2 id="steam-queue-count">Up Next (0)</h2>
+            <span class="steam-queue-meta">Auto-updates enabled</span>
+          </div>
+
+          <!-- Active Download Card (estilo Steam) -->
+          <div id="steam-active-card" class="steam-active-card" hidden>
+            <div class="steam-card-thumb">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="34" height="34">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+              </svg>
+            </div>
+
+            <div class="steam-card-main">
+              <div class="steam-card-header">
+                <div>
+                  <h3 id="steam-card-title">Unreal Engine</h3>
+                  <span id="steam-card-path" class="steam-card-path">/pasta/de/destino</span>
+                </div>
+                <div class="steam-card-actions">
+                  <button class="btn-steam-action" id="btn-steam-pause" title="Pausar / Retomar download">
+                    <span id="btn-steam-pause-icon">⏸</span>
+                    <span id="btn-steam-pause-text">Pausar</span>
+                  </button>
+                  <button class="btn-steam-action btn-danger" id="btn-steam-cancel" title="Cancelar download">
+                    <span>⏹ Cancelar</span>
+                  </button>
+                  <button class="btn-steam-action" id="btn-steam-folder" title="Abrir pasta de instalação">
+                    <span>📁 Pasta</span>
+                  </button>
+                  <div class="steam-card-status-pill" id="steam-status-badge">
+                    <span class="status-pulse-dot"></span>
+                    <span id="steam-status-text">Fetching download link…</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Barra de Progresso Steam -->
+              <div class="steam-progress-track">
+                <div id="steam-card-progress" class="steam-progress-fill" style="width: 0%"></div>
+              </div>
+
+              <div class="steam-card-stats-row">
+                <div class="steam-stat-left">
+                  <span id="steam-card-percent" class="steam-percent-big">0%</span>
+                  <span id="steam-card-bytes" class="steam-stat-sub">0.00 GB / 0.00 GB</span>
+                </div>
+                <div class="steam-stat-right">
+                  <span id="steam-card-speed" class="steam-speed-text">⚡ 0.0 MB/s</span>
+                  <span id="steam-card-eta" class="steam-stat-sub">Calculando tempo restante…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Estado Fila Vazia -->
+          <div id="steam-empty-queue" class="steam-empty-queue">
+            <p>There are no downloads in the queue</p>
+            <button class="btn btn-primary btn-small" id="btn-steam-browse-catalog" style="margin-top: 10px;">
+              Baixar Unreal Engine ⤓
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal de escolha: engine já extraída vs extrair um .zip -->
+  <div id="engine-source-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2>Registrar engine</h2>
+      <p class="modal-subtitle">A engine já está extraída em algum lugar, ou você tem um <code>.zip</code> baixado que precisa extrair primeiro?</p>
+      <div class="modal-choices">
+        <button class="btn btn-primary" id="choice-download-epic">Baixar da Epic Games<br /><small>Lista oficial de compilações para Linux (requer login)</small></button>
+        <button class="btn btn-primary" id="choice-already-extracted">Já está extraída<br /><small>Selecionar a pasta (ele acha o binário nas subpastas)</small></button>
+        <button class="btn btn-primary" id="choice-extract-zip">Preciso extrair um .zip<br /><small>Arquivo compactado baixado manualmente</small></button>
+      </div>
+      <button class="btn btn-ghost modal-cancel" id="engine-source-cancel">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Modal do catálogo de download da Epic Games -->
+  <div id="download-engine-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+      <div class="catalog-header">
+        <div>
+          <h2>Baixar Unreal Engine</h2>
+          <p class="modal-subtitle">Compilações oficiais da Epic Games para Linux vinculadas à sua conta.</p>
+        </div>
+        <button class="btn btn-ghost btn-small" id="btn-refresh-catalog" title="Recarregar catálogo de versões">
+          ↻ Atualizar
+        </button>
+      </div>
+
+      <div class="catalog-toolbar">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+          </svg>
+          <input type="text" id="engine-search-filter" class="catalog-search-input" placeholder="Buscar versão (ex: 5.5, 5.4, 4.27)..." />
+        </div>
+        <div class="filter-tabs">
+          <button class="filter-tab active" data-filter="all">Todas</button>
+          <button class="filter-tab" data-filter="5">UE 5</button>
+          <button class="filter-tab" data-filter="4">UE 4</button>
+        </div>
+      </div>
+
+      <div id="available-engines-loading" class="empty-state">
+        <p>Carregando versões disponíveis diretamente da Epic…</p>
+      </div>
+      <div id="available-engines-error" class="empty-state" hidden>
+        <p id="available-engines-error-msg" style="color: var(--danger);"></p>
+        <button class="btn btn-primary btn-small" id="btn-retry-catalog" style="margin-top: 10px;">Tentar Novamente</button>
+      </div>
+      <div id="available-engines-list" class="available-grid" hidden></div>
+
+      <button class="btn btn-ghost modal-cancel" id="download-engine-cancel">Fechar</button>
+    </div>
+  </div>
+
+  <!-- Modal de login com a conta Epic -->
+  <div id="epic-login-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+      <h2>Entrando com a conta Epic Games</h2>
+      <p class="modal-subtitle">
+        Clique no botão abaixo — vai abrir a página oficial de login. Depois de logar, o launcher
+        detecta sozinho e conclui o login automaticamente.
+      </p>
+      <button class="btn btn-primary" id="btn-open-epic-login" style="margin-bottom: 14px;">Abrir janela de login da Epic</button>
+      <p id="epic-login-status" class="modal-subtitle"></p>
+
+      <div id="epic-login-log" class="log-box" hidden></div>
+      <button class="btn btn-ghost modal-cancel" id="epic-login-cancel">Fechar</button>
+    </div>
+  </div>
+
+  <!-- Modal: Criar Novo Projeto Unreal -->
+  <div id="create-project-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide" style="max-width: 580px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+        <div>
+          <h2>Criar Novo Projeto Unreal</h2>
+          <p class="modal-subtitle" style="margin-bottom: 0;">
+            Gere um projeto pronto instantaneamente, sem precisar abrir o editor.
+          </p>
+        </div>
+        <button class="btn-icon-ghost" id="btn-close-create-proj-modal" type="button" title="Fechar" style="font-size: 18px; border: none; background: transparent; color: var(--text-dim); cursor: pointer;">✕</button>
+      </div>
+
+      <form id="form-create-project" style="display: flex; flex-direction: column; gap: 14px; margin-top: 16px;">
+        <!-- Nome do Projeto -->
+        <div class="form-group">
+          <label class="form-label" for="input-new-proj-name">
+            Nome do Projeto
+            <span class="label-hint">(letras, números e sublinhado, sem espaços)</span>
+          </label>
+          <input
+            type="text"
+            id="input-new-proj-name"
+            class="input-dark"
+            placeholder="Ex: MeuJogo, SurvivalGame"
+            required
+            pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
+            autocomplete="off"
+          />
+        </div>
+
+        <!-- Tipo do Projeto (Blueprint vs C++) -->
+        <div class="form-group">
+          <label class="form-label">Tipo do Projeto</label>
+          <div class="proj-type-selector">
+            <label class="proj-type-card active" id="card-type-bp">
+              <input type="radio" name="proj-type" value="blueprint" checked />
+              <div class="proj-type-icon">🔷</div>
+              <div class="proj-type-info">
+                <strong>Blueprint</strong>
+                <span>Prototipagem rápida e lógica visual sem compilação C++</span>
+              </div>
+            </label>
+
+            <label class="proj-type-card" id="card-type-cpp">
+              <input type="radio" name="proj-type" value="cpp" />
+              <div class="proj-type-icon">⚡</div>
+              <div class="proj-type-info">
+                <strong>C++</strong>
+                <span>Código nativo com Source/, Target.cs e suporte a IDEs</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Template -->
+        <div class="form-group">
+          <label class="form-label" for="select-new-proj-template">Template Inicial</label>
+          <select id="select-new-proj-template" class="select-dark" style="width: 100%;">
+            <option value="blank">📄 Em Branco (Blank) — Projeto limpo sem mecânicas prévias</option>
+            <option value="third_person">🏃 Terceira Pessoa (Third Person) — Personagem e câmera pronta</option>
+            <option value="first_person">🎯 Primeira Pessoa (First Person) — Controle FPS básico</option>
+            <option value="top_down">🕹️ Top-Down — Movimentação estilo Diablo / RTS</option>
+            <option value="vehicle">🚗 Veículo Avançado (Vehicle) — Física de direção</option>
+          </select>
+        </div>
+
+        <!-- Versão da Engine -->
+        <div class="form-group">
+          <label class="form-label" for="select-new-proj-engine">Versão da Unreal Engine</label>
+          <select id="select-new-proj-engine" class="select-dark" style="width: 100%;" required>
+            <!-- Preenchido dinamicamente com as engines instaladas -->
+          </select>
+        </div>
+
+        <!-- Compatibilidade Gráfica (Shader Model / RHI) -->
+        <div class="form-group">
+          <label class="form-label" for="select-new-proj-rhi">
+            Compatibilidade Gráfica (RHI / Shaders)
+            <span class="label-hint" id="gpu-hint-rhi"></span>
+          </label>
+          <select id="select-new-proj-rhi" class="select-dark" style="width: 100%;">
+            <option value="auto">⚡ Automático (Recomendado pelo launcher)</option>
+            <option value="sm5">🛡️ Vulkan SM5 (Alta compatibilidade — Recomendado para AMD RX 580/Polaris/antigas)</option>
+            <option value="sm6">🚀 Vulkan SM6 (Avançado — Requer GPU recente com suporte completo)</option>
+          </select>
+        </div>
+
+        <!-- Pasta onde será criado -->
+        <div class="form-group">
+          <label class="form-label" for="input-new-proj-dir">Pasta de Destino</label>
+          <div style="display: flex; gap: 8px;">
+            <input
+              type="text"
+              id="input-new-proj-dir"
+              class="input-dark"
+              style="flex: 1;"
+              required
+            />
+            <button type="button" class="btn btn-ghost btn-small" id="btn-browse-new-proj-dir">Procurar…</button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-ghost" id="btn-cancel-create-project">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-create-project">
+            <span>⚡ Criar Projeto</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Remover ou Excluir Projeto -->
+  <div id="delete-project-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2 id="delete-project-title">Remover Projeto</h2>
+      <p class="modal-subtitle">
+        O que você deseja fazer com o projeto <strong id="delete-project-name" style="color: #fff;">MyProject</strong>?
+      </p>
+
+      <div class="delete-project-target" id="delete-project-path" style="margin-bottom: 14px;">
+        /caminho/do/projeto
+      </div>
+
+      <div class="modal-choices">
+        <button class="choice-card" id="btn-choice-remove-only" type="button" style="text-align: left; padding: 12px 14px; display: flex; align-items: center; gap: 12px; cursor: pointer;">
+          <span style="font-size: 22px;">📋</span>
+          <div>
+            <strong style="display: block; font-size: 13px; color: #fff;">Apenas remover da lista</strong>
+            <span style="font-size: 11.5px; color: var(--text-dim); display: block; margin-top: 2px;">Mantém todos os arquivos no seu computador. O projeto apenas deixará de aparecer no launcher.</span>
+          </div>
+        </button>
+
+        <button class="choice-card choice-danger" id="btn-choice-delete-disk" type="button" style="text-align: left; padding: 12px 14px; display: flex; align-items: center; gap: 12px; cursor: pointer;">
+          <span style="font-size: 22px;">🗑️</span>
+          <div>
+            <strong style="display: block; font-size: 13px; color: #f87171;">Excluir permanentemente da máquina</strong>
+            <span style="font-size: 11.5px; color: var(--text-dim); display: block; margin-top: 2px;">Apaga toda a pasta do projeto e seus arquivos do disco. Esta ação não poderá ser desfeita!</span>
+          </div>
+        </button>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
+        <button class="btn btn-ghost modal-cancel" id="btn-cancel-delete-project" style="width: auto; margin-top: 0; padding: 6px 18px;">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Ação da Biblioteca (Instalar em Projeto / Engine / Criar Projeto) -->
+  <div id="vault-action-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide" style="max-width: 600px;">
+      <div style="display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px;">
+        <img id="vault-modal-thumb" class="vault-modal-thumb" src="" alt="" />
+        <div style="flex: 1; min-width: 0;">
+          <h2 id="vault-modal-title" style="margin: 0 0 6px 0; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Nome do Plugin</h2>
+          <span id="vault-modal-dev" class="modal-subtitle" style="display: block; margin-bottom: 6px;">Por Desenvolvedor</span>
+          <p id="vault-modal-desc" style="font-size: 12px; color: var(--text-dim); margin: 0; max-height: 54px; overflow-y: auto; line-height: 1.4;"></p>
+        </div>
+      </div>
+
+      <!-- Seletor de Release / Versão da Engine compatível -->
+      <div class="form-group">
+        <label class="form-label" for="select-vault-release">Versão do Item / Engine Suportada</label>
+        <select id="select-vault-release" class="select-dark" style="width: 100%;">
+          <!-- Preenchido dinamicamente com as releases disponíveis -->
+        </select>
+      </div>
+
+      <!-- Escolha da Ação -->
+      <div class="form-group">
+        <label class="form-label">Ação Desejada</label>
+        <div class="proj-type-selector" style="grid-template-columns: 1fr 1fr 1fr;">
+          <label class="proj-type-card active" id="card-vault-act-project">
+            <input type="radio" name="vault-act" value="project" checked />
+            <div class="proj-type-icon">📁</div>
+            <div class="proj-type-info">
+              <strong>No Projeto</strong>
+              <span>Pasta Plugins/</span>
+            </div>
+          </label>
+          <label class="proj-type-card" id="card-vault-act-engine">
+            <input type="radio" name="vault-act" value="engine" />
+            <div class="proj-type-icon">⚙️</div>
+            <div class="proj-type-info">
+              <strong>Na Engine</strong>
+              <span>Global na Engine</span>
+            </div>
+          </label>
+          <label class="proj-type-card" id="card-vault-act-new-proj">
+            <input type="radio" name="vault-act" value="new_project" />
+            <div class="proj-type-icon">⚡</div>
+            <div class="proj-type-info">
+              <strong>Criar Projeto</strong>
+              <span>Novo projeto</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Sub-painel: Instalar no Projeto -->
+      <div id="vault-panel-project" class="vault-action-subpanel">
+        <div class="form-group">
+          <label class="form-label" for="select-vault-target-project">Selecione o Projeto de Destino</label>
+          <select id="select-vault-target-project" class="select-dark" style="width: 100%;">
+            <!-- Preenchido com projetos monitorados -->
+          </select>
+        </div>
+      </div>
+
+      <!-- Sub-painel: Instalar na Engine -->
+      <div id="vault-panel-engine" class="vault-action-subpanel" hidden>
+        <div class="form-group">
+          <label class="form-label" for="select-vault-target-engine">Selecione a Engine Instalada</label>
+          <select id="select-vault-target-engine" class="select-dark" style="width: 100%;">
+            <!-- Preenchido com engines instaladas -->
+          </select>
+        </div>
+      </div>
+
+      <!-- Sub-painel: Criar Projeto -->
+      <div id="vault-panel-new-proj" class="vault-action-subpanel" hidden>
+        <div class="form-group">
+          <label class="form-label" for="input-vault-new-proj-name">Nome do Projeto</label>
+          <input type="text" id="input-vault-new-proj-name" class="input-dark" style="width: 100%;" placeholder="MeuProjeto" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="select-vault-new-proj-engine">Engine Associada</label>
+          <select id="select-vault-new-proj-engine" class="select-dark" style="width: 100%;"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="input-vault-new-proj-dir">Pasta de Destino</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="input-vault-new-proj-dir" class="input-dark" style="flex: 1;" />
+            <button type="button" class="btn btn-ghost btn-small" id="btn-browse-vault-proj-dir">Procurar…</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progresso de Download / Instalação -->
+      <div id="vault-modal-progress-box" class="vault-progress-container" hidden>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+          <span id="vault-progress-status" style="color: #38bdf8;">Baixando…</span>
+          <span id="vault-progress-percent" style="font-weight: 700; color: #fff;">0%</span>
+        </div>
+        <div class="steam-progress-track">
+          <div id="vault-progress-bar" class="steam-progress-fill" style="width: 0%;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-top: 4px;">
+          <span id="vault-progress-bytes">0 MB / 0 MB</span>
+          <span id="vault-progress-speed">0 MB/s</span>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 24px;">
+        <button class="btn btn-ghost" id="btn-cancel-vault-modal">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirm-vault-action">
+          <span>Baixar e Instalar</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

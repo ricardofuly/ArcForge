@@ -1,0 +1,12 @@
+{
+  "name": "unreal-launcher",
+  "version": "0.1.0",
+  "description": "Launcher para gerenciar instalações da Unreal Engine e projetos no Linux e Windows",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

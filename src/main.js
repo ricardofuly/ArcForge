@@ -1,0 +1,2071 @@
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const { open: openDialog } = window.__TAURI__.dialog;
+const { openUrl } = window.__TAURI__.opener;
+
+const LINUX_DOWNLOAD_URL = "https://www.unrealengine.com/linux?lang=pt-BR";
+
+let engines = [];
+let projectDirs = [];
+let projects = [];
+let detectedIdes = [];
+let currentView = "dashboard";
+let isDownloadActive = false;
+let isDownloadPaused = false;
+let currentDownloadDestDir = "";
+
+async function refreshDetectedIdes() {
+  try {
+    detectedIdes = await invoke("get_available_ides");
+  } catch (err) {
+    console.error("Erro ao detectar IDEs:", err);
+  }
+}
+
+function renderIdeOptions(selectedIde) {
+  const preferred = selectedIde || localStorage.getItem("preferred_ide") || "code";
+  if (!detectedIdes || detectedIdes.length === 0) {
+    return `
+      <option value="code" ${preferred === "code" ? "selected" : ""}>VS Code</option>
+      <option value="rider" ${preferred === "rider" ? "selected" : ""}>Rider</option>
+      <option value="clion" ${preferred === "clion" ? "selected" : ""}>CLion</option>
+    `;
+  }
+  return detectedIdes
+    .map((ide) => {
+      const runnerText = ide.runner ? ` (${ide.runner})` : (!ide.is_available ? " (não instalado)" : "");
+      const isSelected = preferred === ide.id ? "selected" : "";
+      return `<option value="${ide.id}" ${isSelected}>${ide.name}${runnerText}</option>`;
+    })
+    .join("");
+}
+
+function updateTopDownloadWidgetVisibility() {
+  const topActive = document.getElementById("top-download-active");
+  const topBtn = document.getElementById("btn-open-epic-downloader");
+
+  if (currentView === "downloads") {
+    // Na aba de downloads, a pílula vermelha fica SEMPRE oculta conforme solicitado pelo usuário
+    if (topActive) topActive.hidden = true;
+    if (topBtn) topBtn.hidden = false;
+  } else {
+    // Nas outras abas (Home, Engines, Projetos), mostra se houver download ativo
+    if (isDownloadActive) {
+      if (topActive) topActive.hidden = false;
+      if (topBtn) topBtn.hidden = true;
+    } else {
+      if (topActive) topActive.hidden = true;
+      if (topBtn) topBtn.hidden = false;
+    }
+  }
+}
+
+// ---------- Navegação entre views ----------
+function switchView(viewName) {
+  if (!viewName) return;
+  currentView = viewName;
+  document.querySelectorAll(".nav-item").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === viewName);
+  });
+  document.querySelectorAll(".view").forEach((v) => {
+    v.classList.toggle("active", v.id === `view-${viewName}`);
+  });
+  updateTopDownloadWidgetVisibility();
+  if (viewName === "downloads") {
+    renderSteamGraph();
+  } else if (viewName === "vault" && !vaultLoaded) {
+    refreshVault(false);
+  }
+}
+
+document.querySelectorAll(".nav-item").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const viewName = btn.dataset.view;
+    if (viewName) switchView(viewName);
+  });
+});
+
+// ---------- Toast ----------
+let toastTimer = null;
+function showToast(message, isError = false) {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.classList.toggle("error", isError);
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+
+function updateSidebarStats() {
+  const statsEl = document.getElementById("sidebar-stats");
+  if (statsEl) {
+    statsEl.textContent = `${engines.length} engine${engines.length === 1 ? "" : "s"} • ${projects.length} projeto${projects.length === 1 ? "" : "s"}`;
+  }
+}
+
+// ---------- Engines ----------
+async function refreshEngines() {
+  engines = await invoke("list_engines");
+  renderEngines();
+  updateSidebarStats();
+}
+
+function renderEngines() {
+  // 1. Renderiza no Carrossel Horizontal do Dashboard (Estilo Servidores da Referência)
+  const carousel = document.getElementById("dashboard-engine-carousel");
+  const dashEmpty = document.getElementById("dashboard-engine-empty");
+  if (carousel && dashEmpty) {
+    carousel.innerHTML = "";
+    if (engines.length === 0) {
+      dashEmpty.hidden = false;
+    } else {
+      dashEmpty.hidden = true;
+      for (const eng of engines) {
+        const card = document.createElement("div");
+        card.className = "engine-status-card";
+        card.innerHTML = `
+          <div class="engine-status-top">
+            <span class="engine-status-name" title="Unreal Engine ${eng.version}">Unreal Engine ${eng.version}</span>
+            <span class="status-indicator-dot" title="Pronta para uso"></span>
+          </div>
+          <div class="engine-status-meta">
+            <span>${eng.is_source_build ? "Source" : "Installed"}</span>
+            <span>Linux</span>
+          </div>
+          <button class="btn-engine-launch">
+            Iniciar Editor ›
+          </button>
+        `;
+        card.querySelector(".btn-engine-launch").addEventListener("click", async () => {
+          try {
+            await invoke("launch_engine_editor", { engineId: eng.id, rhiMode: "auto" });
+            showToast(`Iniciando o editor da Unreal Engine ${eng.version}…`);
+          } catch (err) {
+            showToast(String(err), true);
+          }
+        });
+        carousel.appendChild(card);
+      }
+
+      // Card de atalho "+ Adicionar" no final do carrossel
+      const addCard = document.createElement("button");
+      addCard.className = "btn-add-engine-card";
+      addCard.innerHTML = `
+        <span style="font-size: 18px; line-height: 1;">+</span>
+        <span style="font-size: 11px; font-weight: 600;">Registrar Engine</span>
+      `;
+      addCard.addEventListener("click", showEngineSourceModal);
+      carousel.appendChild(addCard);
+    }
+  }
+
+  // 2. Renderiza na aba dedicada "Engines" (Visualização Clássica)
+  const grid = document.getElementById("engine-list");
+  const empty = document.getElementById("engine-empty");
+  if (grid && empty) {
+    grid.innerHTML = "";
+    if (engines.length === 0) {
+      empty.hidden = false;
+    } else {
+      empty.hidden = true;
+      for (const eng of engines) {
+        const card = document.createElement("div");
+        card.className = "engine-card";
+        card.innerHTML = `
+          <div class="engine-card-top">
+            <span class="engine-version">${eng.version}</span>
+            <span class="engine-badge ${eng.is_source_build ? "source" : ""}">${eng.is_source_build ? "source build" : "installed build"}</span>
+          </div>
+          <span class="engine-path">${eng.path}</span>
+          <div class="engine-card-actions">
+            <button class="btn btn-small btn-ghost btn-open-editor" data-id="${eng.id}">Abrir Editor</button>
+            <button class="btn btn-small btn-ghost btn-remove-engine" style="color: var(--danger);" data-id="${eng.id}">Remover</button>
+          </div>
+        `;
+        card.querySelector(".btn-open-editor").addEventListener("click", async () => {
+          try {
+            await invoke("launch_engine_editor", { engineId: eng.id, rhiMode: "auto" });
+            showToast(`Abrindo o editor da UE ${eng.version}…`);
+          } catch (err) {
+            showToast(String(err), true);
+          }
+        });
+        card.querySelector(".btn-remove-engine").addEventListener("click", async () => {
+          await invoke("remove_engine", { id: eng.id });
+          await refreshEngines();
+          await refreshProjects();
+          showToast(`Engine ${eng.version} desvinculada do launcher.`);
+        });
+        grid.appendChild(card);
+      }
+    }
+  }
+}
+
+function showEngineSourceModal() {
+  document.getElementById("engine-source-modal").hidden = false;
+}
+function hideEngineSourceModal() {
+  document.getElementById("engine-source-modal").hidden = true;
+}
+
+document.getElementById("btn-add-engine").addEventListener("click", showEngineSourceModal);
+document.getElementById("engine-source-cancel").addEventListener("click", hideEngineSourceModal);
+document.getElementById("engine-source-modal").addEventListener("click", (e) => {
+  if (e.target.id === "engine-source-modal") hideEngineSourceModal();
+});
+
+document.getElementById("btn-open-epic-downloader").addEventListener("click", openEpicDownloader);
+document.getElementById("choice-download-epic").addEventListener("click", () => {
+  hideEngineSourceModal();
+  openEpicDownloader();
+});
+document.getElementById("download-engine-cancel").addEventListener("click", () => {
+  document.getElementById("download-engine-modal").hidden = true;
+});
+document.getElementById("download-engine-modal").addEventListener("click", (e) => {
+  if (e.target.id === "download-engine-modal") document.getElementById("download-engine-modal").hidden = true;
+});
+
+document.getElementById("choice-already-extracted").addEventListener("click", async () => {
+  hideEngineSourceModal();
+  const folder = await openDialog({
+    directory: true,
+    title: "Selecione a pasta onde está a engine (pode ser a pasta raiz ou uma pasta acima dela)",
+  });
+  if (!folder) return;
+  showToast("Procurando a engine dentro da pasta selecionada…");
+  try {
+    const install = await invoke("add_engine_from_folder", { path: folder, isSourceBuild: false });
+    showToast(`Engine ${install.version} registrada com sucesso.`);
+    await refreshEngines();
+  } catch (err) {
+    showToast(String(err), true);
+  }
+});
+
+document.getElementById("choice-extract-zip").addEventListener("click", async () => {
+  hideEngineSourceModal();
+  const zipPath = await openDialog({
+    multiple: false,
+    filters: [{ name: "Unreal Engine (.zip)", extensions: ["zip"] }],
+    title: "Selecione o .zip baixado",
+  });
+  if (!zipPath) return;
+
+  const destDir = await openDialog({
+    directory: true,
+    title: "Escolha onde extrair a engine",
+  });
+  if (!destDir) return;
+
+  switchView("downloads");
+  const activeCard = document.getElementById("steam-active-card");
+  const emptyQueue = document.getElementById("steam-empty-queue");
+  const queueCount = document.getElementById("steam-queue-count");
+  const cardTitle = document.getElementById("steam-card-title");
+  const cardPath = document.getElementById("steam-card-path");
+  const statusBadge = document.getElementById("steam-status-badge");
+  const statusText = document.getElementById("steam-status-text");
+  const cardProgress = document.getElementById("steam-card-progress");
+  const cardPercent = document.getElementById("steam-card-percent");
+  const cardBytes = document.getElementById("steam-card-bytes");
+  const cardSpeed = document.getElementById("steam-card-speed");
+  const cardEta = document.getElementById("steam-card-eta");
+
+  if (emptyQueue) emptyQueue.hidden = true;
+  if (activeCard) activeCard.hidden = false;
+  if (queueCount) queueCount.textContent = "Up Next (1)";
+
+  const zipFilename = zipPath.split("/").pop() || "UnrealEngine.zip";
+  if (cardTitle) cardTitle.textContent = zipFilename;
+  if (cardPath) cardPath.textContent = destDir;
+  if (statusBadge) {
+    statusBadge.className = "steam-card-status-pill extracting";
+    if (statusText) statusText.textContent = "Extracting…";
+  }
+  if (cardProgress) {
+    cardProgress.style.width = "0%";
+    cardProgress.className = "steam-progress-fill extracting";
+  }
+  if (cardPercent) cardPercent.textContent = "0%";
+  if (cardBytes) cardBytes.textContent = "Descompactando pacote local";
+  if (cardSpeed) cardSpeed.textContent = "💾 Gravando no disco";
+  if (cardEta) cardEta.textContent = "Iniciando extração…";
+
+  steamNetSpeed = 0.0;
+  steamDiskSpeed = 75.0;
+  updateSteamMetricsDisplay();
+
+  try {
+    const install = await invoke("extract_engine_zip", { zipPath, destDir });
+    showToast(`Engine ${install.version} registrada com sucesso.`);
+    await refreshEngines();
+    if (statusBadge) {
+      statusBadge.className = "steam-card-status-pill completed";
+      if (statusText) statusText.textContent = "Completed";
+    }
+    setTimeout(() => {
+      if (activeCard) activeCard.hidden = true;
+      if (emptyQueue) emptyQueue.hidden = false;
+      if (queueCount) queueCount.textContent = "Up Next (0)";
+      steamDiskSpeed = 0.0;
+      updateSteamMetricsDisplay();
+    }, 5000);
+  } catch (err) {
+    showToast(String(err), true);
+    if (activeCard) activeCard.hidden = true;
+    if (emptyQueue) emptyQueue.hidden = false;
+    if (queueCount) queueCount.textContent = "Up Next (0)";
+    steamDiskSpeed = 0.0;
+    updateSteamMetricsDisplay();
+  }
+});
+
+listen("engine-extract-progress", (event) => {
+  const { percent, currentFile } = event.payload;
+  const pct = Math.round(percent);
+  const cardProgress = document.getElementById("steam-card-progress");
+  const cardPercent = document.getElementById("steam-card-percent");
+  const cardEta = document.getElementById("steam-card-eta");
+
+  if (cardProgress) cardProgress.style.width = `${percent}%`;
+  if (cardPercent) cardPercent.textContent = `${pct}%`;
+  if (cardEta && currentFile) cardEta.textContent = currentFile;
+});
+
+// ---------- Projects ----------
+async function refreshProjectDirs() {
+  projectDirs = await invoke("list_project_dirs");
+  renderWatchedDirs();
+}
+
+function renderWatchedDirs() {
+  const containers = [
+    document.getElementById("dashboard-watched-dirs"),
+    document.getElementById("watched-dirs"),
+  ].filter(Boolean);
+
+  for (const row of containers) {
+    row.innerHTML = "";
+    for (const dir of projectDirs) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.innerHTML = `<span>${dir}</span>`;
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", async () => {
+        await invoke("remove_project_dir", { path: dir });
+        await refreshProjectDirs();
+        await refreshProjects();
+      });
+      chip.appendChild(removeBtn);
+      row.appendChild(chip);
+    }
+  }
+}
+
+async function refreshProjects() {
+  projects = await invoke("scan_projects");
+  renderProjects();
+  updateSidebarStats();
+}
+
+function createModernProjectCard(proj) {
+  const card = document.createElement("div");
+  card.className = "modern-proj-card";
+
+  const engineOptions = engines
+    .map(
+      (e) =>
+        `<option value="${e.id}" ${e.id === proj.matched_engine_id ? "selected" : ""}>Unreal Engine ${e.version}</option>`
+    )
+    .join("");
+
+  const matchedEngine = engines.find((e) => e.id === proj.matched_engine_id);
+  const engineBadgeText = matchedEngine ? `UE ${matchedEngine.version}` : (engines.length > 0 ? "UE ?" : "Sem Engine");
+  const initials = (proj.name || "UE").slice(0, 2).toUpperCase();
+
+  card.innerHTML = `
+    <div class="modern-proj-cover">
+      <div class="modern-proj-placeholder">
+        <svg viewBox="0 0 24 24" fill="currentColor" class="modern-proj-placeholder-watermark">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+        </svg>
+        <span class="modern-proj-placeholder-initials">${initials}</span>
+      </div>
+      <div class="modern-proj-badges">
+        <span class="badge-engine">${engineBadgeText}</span>
+        <span class="badge-type ${proj.has_source ? "cpp" : "bp"}">${proj.has_source ? "C++ Project" : "Blueprint"}</span>
+      </div>
+    </div>
+    <div class="modern-proj-content">
+      <h3 class="modern-proj-title" title="${proj.name}">${proj.name}</h3>
+      <span class="modern-proj-path" title="Clique para abrir pasta no sistema: ${proj.uproject_path}">📁 ${proj.project_dir}</span>
+
+      <div class="modern-proj-selectors">
+        <select class="select-dark engine-select" title="Versão da Unreal Engine">
+          <option value="">Selecionar Engine…</option>
+          ${engineOptions}
+        </select>
+        <select class="select-dark rhi-select" title="Compatibilidade Gráfica (Shader Model)" style="max-width: 110px;">
+          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>⚡ Auto</option>
+          <option value="sm5" ${proj.rhi_mode === "sm5" ? "selected" : ""}>🛡️ SM5</option>
+          <option value="sm6" ${proj.rhi_mode === "sm6" ? "selected" : ""}>🚀 SM6</option>
+        </select>
+        ${proj.has_source ? `
+          <select class="select-dark ide-select" title="IDE para C++" style="max-width: 140px;">
+            ${renderIdeOptions()}
+          </select>
+        ` : ""}
+      </div>
+
+      <div class="modern-proj-footer">
+        <button class="btn-open-proj-primary btn-open-project" ${engines.length === 0 ? "disabled" : ""}>
+          <span>Iniciar Projeto</span>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        ${proj.has_source ? `
+          <button class="btn-proj-icon-action btn-open-ide" title="Abrir projeto na IDE">
+            ↗
+          </button>
+        ` : ""}
+        <button class="btn-proj-icon-action btn-open-folder" title="Abrir pasta no gerenciador de arquivos">
+          📁
+        </button>
+        <button class="btn-proj-icon-action danger btn-remove-project" title="Remover da lista monitorada">
+          ×
+        </button>
+      </div>
+    </div>
+  `;
+
+  if (proj.thumbnail_path) {
+    invoke("read_project_thumbnail", { path: proj.thumbnail_path })
+      .then((dataUrl) => {
+        const cover = card.querySelector(".modern-proj-cover");
+        const placeholder = card.querySelector(".modern-proj-placeholder");
+        if (placeholder) placeholder.remove();
+        const img = document.createElement("img");
+        img.className = "modern-proj-cover-img";
+        img.src = dataUrl;
+        img.alt = proj.name;
+        cover.prepend(img);
+      })
+      .catch(() => {});
+  }
+
+  const select = card.querySelector(".engine-select");
+  const openBtn = card.querySelector(".btn-open-project");
+  const rhiSelect = card.querySelector(".rhi-select");
+
+  if (rhiSelect) {
+    rhiSelect.addEventListener("change", async (e) => {
+      const mode = e.target.value;
+      try {
+        await invoke("set_project_rhi_mode", { uprojectPath: proj.uproject_path, rhiMode: mode });
+        proj.rhi_mode = mode;
+        const label = mode === "auto" ? "Automático" : mode.toUpperCase();
+        showToast(`RHI do projeto alterado para: ${label}`);
+      } catch (err) {
+        showToast(String(err), true);
+      }
+    });
+  }
+
+  openBtn.addEventListener("click", async () => {
+    const engineId = select.value;
+    if (!engineId) {
+      showToast("Selecione qual engine usar para abrir este projeto.", true);
+      return;
+    }
+    const rhiMode = rhiSelect ? rhiSelect.value : (proj.rhi_mode || "auto");
+    try {
+      await invoke("launch_project", { uprojectPath: proj.uproject_path, engineId, rhiMode });
+      const rhiLabel = rhiMode === "auto" ? (gpuInfo?.recommends_sm5 ? "SM5" : "") : rhiMode.toUpperCase();
+      showToast(`Iniciando ${proj.name}${rhiLabel ? ` (${rhiLabel})` : ""}…`);
+    } catch (err) {
+      showToast(String(err), true);
+    }
+  });
+
+  if (proj.has_source) {
+    const ideSelect = card.querySelector(".ide-select");
+    if (ideSelect) {
+      ideSelect.addEventListener("change", (e) => {
+        localStorage.setItem("preferred_ide", e.target.value);
+      });
+    }
+    card.querySelector(".btn-open-ide")?.addEventListener("click", async () => {
+      const selectedId = ideSelect ? ideSelect.value : "code";
+      const ideMeta = detectedIdes.find((i) => i.id === selectedId);
+      const ideName = ideMeta ? `${ideMeta.name}${ideMeta.runner ? ` (${ideMeta.runner})` : ""}` : selectedId;
+      try {
+        showToast(`Abrindo projeto no ${ideName}…`);
+        await invoke("open_project_in_ide", { projectDir: proj.project_dir, ide: selectedId });
+      } catch (err) {
+        showToast(String(err), true);
+      }
+    });
+  }
+
+  card.querySelector(".btn-open-folder")?.addEventListener("click", async () => {
+    try {
+      await invoke("open_path_in_file_manager", { path: proj.project_dir });
+    } catch (err) {
+      showToast(String(err), true);
+    }
+  });
+
+  card.querySelector(".modern-proj-path")?.addEventListener("click", async () => {
+    try {
+      await invoke("open_path_in_file_manager", { path: proj.project_dir });
+    } catch (err) {
+      showToast(String(err), true);
+    }
+  });
+
+  card.querySelector(".btn-remove-project")?.addEventListener("click", () => {
+    openDeleteProjectModal(proj);
+  });
+
+  return card;
+}
+
+// ---------- Modal de Remoção / Exclusão de Projeto ----------
+let projectPendingDeletion = null;
+
+function openDeleteProjectModal(proj) {
+  projectPendingDeletion = proj;
+  const modal = document.getElementById("delete-project-modal");
+  const nameEl = document.getElementById("delete-project-name");
+  const pathEl = document.getElementById("delete-project-path");
+
+  if (nameEl) nameEl.textContent = proj.name;
+  if (pathEl) pathEl.textContent = proj.uproject_path;
+  if (modal) modal.hidden = false;
+}
+
+function closeDeleteProjectModal() {
+  projectPendingDeletion = null;
+  const modal = document.getElementById("delete-project-modal");
+  if (modal) modal.hidden = true;
+}
+
+document.getElementById("btn-cancel-delete-project")?.addEventListener("click", closeDeleteProjectModal);
+
+document.getElementById("delete-project-modal")?.addEventListener("click", (e) => {
+  if (e.target.id === "delete-project-modal") {
+    closeDeleteProjectModal();
+  }
+});
+
+document.getElementById("btn-choice-remove-only")?.addEventListener("click", async () => {
+  if (!projectPendingDeletion) return;
+  const proj = projectPendingDeletion;
+  closeDeleteProjectModal();
+  try {
+    await invoke("remove_project", { uprojectPath: proj.uproject_path });
+    await refreshProjects();
+    showToast(`${proj.name} removido da lista do launcher.`);
+  } catch (err) {
+    showToast(String(err), true);
+  }
+});
+
+document.getElementById("btn-choice-delete-disk")?.addEventListener("click", async () => {
+  if (!projectPendingDeletion) return;
+  const proj = projectPendingDeletion;
+  closeDeleteProjectModal();
+  try {
+    await invoke("delete_project_from_disk", { uprojectPath: proj.uproject_path });
+    await refreshProjects();
+    showToast(`Pasta e arquivos de ${proj.name} foram excluídos permanentemente.`);
+  } catch (err) {
+    showToast(`Erro ao excluir projeto: ${err}`, true);
+  }
+});
+
+function renderProjects() {
+  // 1. Renderiza no Dashboard
+  const heroContainer = document.getElementById("dashboard-project-list");
+  const heroEmpty = document.getElementById("dashboard-project-empty");
+  if (heroContainer && heroEmpty) {
+    heroContainer.innerHTML = "";
+    if (projects.length === 0) {
+      heroEmpty.hidden = false;
+    } else {
+      heroEmpty.hidden = true;
+      for (const proj of projects) {
+        heroContainer.appendChild(createModernProjectCard(proj));
+      }
+    }
+  }
+
+  // 2. Renderiza na aba dedicada "Projetos"
+  const list = document.getElementById("project-list");
+  const empty = document.getElementById("project-empty");
+  if (list && empty) {
+    list.innerHTML = "";
+    if (projects.length === 0) {
+      empty.hidden = false;
+    } else {
+      empty.hidden = true;
+      for (const proj of projects) {
+        list.appendChild(createModernProjectCard(proj));
+      }
+    }
+  }
+}
+
+document.getElementById("btn-add-project-dir").addEventListener("click", async () => {
+  const folder = await openDialog({ directory: true, title: "Selecione a pasta onde ficam seus projetos" });
+  if (!folder) return;
+  await invoke("add_project_dir", { path: folder });
+  await refreshProjectDirs();
+  await refreshProjects();
+});
+
+document.getElementById("btn-rescan").addEventListener("click", async () => {
+  await refreshProjects();
+  showToast("Lista de projetos atualizada.");
+});
+
+// ---------- Compatibilidade de GPU e Shader Model (RHI) ----------
+let gpuInfo = null;
+
+async function checkGpuCompatibility() {
+  try {
+    const settings = await invoke("get_rhi_settings");
+    gpuInfo = settings.gpu;
+
+    const banner = document.getElementById("gpu-compatibility-banner");
+    const hint = document.getElementById("gpu-hint-rhi");
+
+    if (gpuInfo?.recommends_sm5) {
+      if (banner) {
+        banner.hidden = false;
+        const title = document.getElementById("gpu-compat-title");
+        const desc = document.getElementById("gpu-compat-desc");
+        if (title) title.textContent = "Modo de Segurança Vulkan SM5 Ativo";
+        if (desc) {
+          desc.innerHTML = `Sua GPU (<strong>${gpuInfo.name}</strong>) opera com maior estabilidade em Vulkan SM5. O launcher aplica <code>-sm5</code> automaticamente ao iniciar o editor e projetos, mantendo seus arquivos intactos.`;
+        }
+      }
+      if (hint) {
+        hint.textContent = "(Vulkan SM5 recomendado para sua GPU)";
+      }
+      const selectNewRhi = document.getElementById("select-new-proj-rhi");
+      if (selectNewRhi) {
+        selectNewRhi.value = "sm5";
+      }
+    } else if (banner) {
+      banner.hidden = true;
+    }
+  } catch (err) {
+    console.warn("Não foi possível verificar a compatibilidade de GPU:", err);
+  }
+}
+
+// ---------- Modal de Criação de Novo Projeto ----------
+function openCreateProjectModal() {
+  const modal = document.getElementById("create-project-modal");
+  const selectEngine = document.getElementById("select-new-proj-engine");
+  const selectRhi = document.getElementById("select-new-proj-rhi");
+  const gpuHint = document.getElementById("gpu-hint-rhi");
+  const inputDir = document.getElementById("input-new-proj-dir");
+  const inputName = document.getElementById("input-new-proj-name");
+
+  if (!modal) return;
+
+  if (engines.length === 0) {
+    showToast("Nenhuma Unreal Engine instalada foi encontrada. Adicione ou instale uma engine primeiro.", true);
+    return;
+  }
+
+  // Preenche opções de engines
+  if (selectEngine) {
+    selectEngine.innerHTML = engines
+      .map((e) => `<option value="${e.id}">Unreal Engine ${e.version} (${e.path})</option>`)
+      .join("");
+  }
+
+  // Define RHI recomendado
+  if (selectRhi && gpuInfo?.recommends_sm5) {
+    selectRhi.value = "sm5";
+  } else if (selectRhi) {
+    selectRhi.value = "auto";
+  }
+  if (gpuHint) {
+    gpuHint.textContent = gpuInfo?.recommends_sm5
+      ? "(Vulkan SM5 recomendado para sua GPU)"
+      : "";
+  }
+
+  // Sugere diretório padrão
+  if (inputDir) {
+    const defaultDir = projectDirs.length > 0 ? projectDirs[0] : "";
+    inputDir.value = defaultDir;
+  }
+
+  if (inputName) {
+    inputName.value = "";
+    setTimeout(() => inputName.focus(), 80);
+  }
+
+  // Reseta seleção para Blueprint por padrão
+  setProjectTypeSelection("blueprint");
+
+  modal.hidden = false;
+}
+
+function closeCreateProjectModal() {
+  const modal = document.getElementById("create-project-modal");
+  if (modal) modal.hidden = true;
+}
+
+function setProjectTypeSelection(type) {
+  const bpCard = document.getElementById("card-type-bp");
+  const cppCard = document.getElementById("card-type-cpp");
+  const bpRadio = bpCard?.querySelector("input[type='radio']");
+  const cppRadio = cppCard?.querySelector("input[type='radio']");
+
+  if (type === "cpp") {
+    bpCard?.classList.remove("active");
+    cppCard?.classList.add("active");
+    if (cppRadio) cppRadio.checked = true;
+  } else {
+    cppCard?.classList.remove("active");
+    bpCard?.classList.add("active");
+    if (bpRadio) bpRadio.checked = true;
+  }
+}
+
+document.getElementById("card-type-bp")?.addEventListener("click", () => setProjectTypeSelection("blueprint"));
+document.getElementById("card-type-cpp")?.addEventListener("click", () => setProjectTypeSelection("cpp"));
+
+document.getElementById("btn-create-project-trigger")?.addEventListener("click", openCreateProjectModal);
+document.getElementById("btn-dash-create-project")?.addEventListener("click", openCreateProjectModal);
+document.getElementById("btn-dash-empty-create-project")?.addEventListener("click", openCreateProjectModal);
+document.getElementById("btn-projects-empty-create")?.addEventListener("click", openCreateProjectModal);
+
+document.getElementById("btn-close-create-proj-modal")?.addEventListener("click", closeCreateProjectModal);
+document.getElementById("btn-cancel-create-project")?.addEventListener("click", closeCreateProjectModal);
+document.getElementById("create-project-modal")?.addEventListener("click", (e) => {
+  if (e.target.id === "create-project-modal") closeCreateProjectModal();
+});
+
+document.getElementById("btn-browse-new-proj-dir")?.addEventListener("click", async () => {
+  const folder = await openDialog({
+    directory: true,
+    title: "Selecione a pasta onde o projeto será criado",
+  });
+  if (folder) {
+    document.getElementById("input-new-proj-dir").value = folder;
+  }
+});
+
+document.getElementById("btn-add-folder-projects-tab")?.addEventListener("click", async () => {
+  const folder = await openDialog({ directory: true, title: "Selecione a pasta onde ficam seus projetos" });
+  if (!folder) return;
+  await invoke("add_project_dir", { path: folder });
+  await refreshProjectDirs();
+  await refreshProjects();
+});
+
+document.getElementById("btn-rescan-projects-tab")?.addEventListener("click", async () => {
+  await refreshProjects();
+  showToast("Lista de projetos atualizada.");
+});
+
+document.getElementById("form-create-project")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const nameInput = document.getElementById("input-new-proj-name");
+  const templateSelect = document.getElementById("select-new-proj-template");
+  const engineSelect = document.getElementById("select-new-proj-engine");
+  const dirInput = document.getElementById("input-new-proj-dir");
+  const submitBtn = document.getElementById("btn-submit-create-project");
+
+  const name = nameInput.value.trim();
+  const template = templateSelect.value;
+  const engineId = engineSelect.value;
+  const parentDir = dirInput.value.trim();
+  const isCpp = document.querySelector("input[name='proj-type']:checked")?.value === "cpp";
+
+  if (!name) {
+    showToast("Digite o nome do projeto.", true);
+    return;
+  }
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+    showToast("O nome do projeto deve começar com uma letra e conter apenas letras, números e sublinhados (_).", true);
+    return;
+  }
+  if (!engineId) {
+    showToast("Selecione uma engine para associar ao projeto.", true);
+    return;
+  }
+  if (!parentDir) {
+    showToast("Selecione a pasta de destino para o projeto.", true);
+    return;
+  }
+
+  const rhiSelect = document.getElementById("select-new-proj-rhi");
+  const rhiTarget = rhiSelect ? rhiSelect.value : "auto";
+
+  const originalBtnHtml = submitBtn.innerHTML;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = `<span>Criando projeto… ⏳</span>`;
+
+  try {
+    const newProj = await invoke("create_project", {
+      name,
+      parentDir,
+      engineId,
+      projectType: isCpp ? "cpp" : "blueprint",
+      template,
+      rhiTarget,
+    });
+
+    if (!projectDirs.includes(parentDir)) {
+      await invoke("add_project_dir", { path: parentDir });
+      await refreshProjectDirs();
+    }
+
+    closeCreateProjectModal();
+    showToast(`Projeto ${newProj.name} (${isCpp ? "C++" : "Blueprint"}) criado com sucesso!`);
+    await refreshProjects();
+  } catch (err) {
+    showToast(`Erro ao criar projeto: ${err}`, true);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalBtnHtml;
+  }
+});
+
+// ---------- Conta Epic Games (Topbar Perfil) ----------
+async function refreshEpicStatus() {
+  const userDisplayName = document.getElementById("user-display-name");
+  const userAvatar = document.getElementById("user-avatar");
+  const loginBtn = document.getElementById("btn-epic-login");
+  const logoutBtn = document.getElementById("btn-epic-logout");
+
+  try {
+    const status = await invoke("epic_status");
+
+    if (status.logged_in) {
+      const name = status.username || "Conectado";
+      userDisplayName.textContent = name;
+      userAvatar.textContent = name.slice(0, 1).toUpperCase();
+      loginBtn.hidden = true;
+      logoutBtn.hidden = false;
+    } else {
+      userDisplayName.textContent = "Não conectado";
+      userAvatar.textContent = "?";
+      loginBtn.hidden = false;
+      logoutBtn.hidden = true;
+    }
+  } catch (err) {
+    userDisplayName.textContent = "Não conectado";
+    userAvatar.textContent = "?";
+    loginBtn.hidden = false;
+    logoutBtn.hidden = true;
+  }
+}
+
+document.getElementById("btn-epic-login").addEventListener("click", () => {
+  document.getElementById("epic-login-status").textContent = "";
+  document.getElementById("epic-login-log").hidden = true;
+  document.getElementById("epic-login-log").textContent = "";
+  document.getElementById("epic-login-modal").hidden = false;
+});
+
+document.getElementById("epic-login-cancel").addEventListener("click", () => {
+  document.getElementById("epic-login-modal").hidden = true;
+});
+
+document.getElementById("epic-login-modal").addEventListener("click", (e) => {
+  if (e.target.id === "epic-login-modal") document.getElementById("epic-login-modal").hidden = true;
+});
+
+document.getElementById("btn-open-epic-login").addEventListener("click", async () => {
+  const statusEl = document.getElementById("epic-login-status");
+  const log = document.getElementById("epic-login-log");
+  statusEl.textContent = "Aguardando você logar na janela que abriu…";
+  log.hidden = false;
+  log.textContent = "";
+  try {
+    await invoke("epic_login_auto");
+    showToast("Login com a conta Epic concluído com sucesso!");
+    document.getElementById("epic-login-modal").hidden = true;
+  } catch (err) {
+    statusEl.textContent = "Não foi possível concluir o login automaticamente.";
+    showToast(String(err), true);
+  } finally {
+    await refreshEpicStatus();
+  }
+});
+
+document.getElementById("btn-epic-logout").addEventListener("click", async () => {
+  try {
+    await invoke("epic_logout");
+    showToast("Você saiu da conta Epic.");
+  } catch (err) {
+    showToast(String(err), true);
+  } finally {
+    await refreshEpicStatus();
+  }
+});
+
+function appendEpicLog(line) {
+  const log = document.getElementById("epic-login-log");
+  if (!log) return;
+  log.textContent += line + "\n";
+  log.scrollTop = log.scrollHeight;
+}
+
+listen("epic-log", (event) => appendEpicLog(event.payload.line));
+listen("legendary-log", (event) => appendEpicLog(event.payload.line));
+
+// ---------- Catálogo e Download Nativo de Engines (Cosmos API & SSO) ----------
+let currentAvailableBlobs = [];
+let currentCategoryFilter = "all";
+let currentSearchFilter = "";
+
+function renderAvailableEngines() {
+  const modal = document.getElementById("download-engine-modal");
+  const listEl = document.getElementById("available-engines-list");
+  listEl.innerHTML = "";
+
+  const query = currentSearchFilter.trim().toLowerCase();
+  const filtered = currentAvailableBlobs.filter((blob) => {
+    const ver = (blob.version || blob.name || "").toLowerCase();
+    const matchesQuery = !query || ver.includes(query) || blob.name.toLowerCase().includes(query);
+    if (!matchesQuery) return false;
+
+    if (currentCategoryFilter === "5") {
+      return ver.startsWith("5.");
+    } else if (currentCategoryFilter === "4") {
+      return ver.startsWith("4.");
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="empty-state" style="margin: 20px 0;"><p>Nenhuma versão encontrada para o filtro atual.</p></div>`;
+    return;
+  }
+
+  for (const blob of filtered) {
+    const isPrecompiled = blob.isPrecompiled !== false && (blob.version ? blob.version.startsWith("5.") : true);
+    const ver = blob.version || blob.name.replace("Linux_Unreal_Engine_", "").replace(".zip", "");
+    const cleanName = `Unreal Engine ${ver}`;
+    const sizeGb = blob.size > 0 ? (blob.size / 1e9).toFixed(1) + " GB" : "Variável";
+    const isInstalled = engines.some((e) => e.version === ver || cleanName.includes(e.version));
+
+    const card = document.createElement("div");
+    card.className = "available-card";
+
+    const badgePrecompiled = isPrecompiled
+      ? `<span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 11px;">Pré-compilada Oficial</span>`
+      : `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 11px;">Código Fonte (GitHub)</span>`;
+
+    const metaText = isPrecompiled
+      ? `${sizeGb} • Build oficial da Epic Games para Linux`
+      : `Repositório oficial da Epic Games • GitHub Release`;
+
+    const actionBtnText = isInstalled
+      ? "Reinstalar"
+      : (isPrecompiled ? "Baixar & Instalar" : "Obter no GitHub ↗");
+
+    card.innerHTML = `
+      <div class="available-info">
+        <span class="available-title">
+          ${cleanName}
+          ${badgePrecompiled}
+          ${isInstalled ? '<span class="engine-badge">instalada</span>' : ""}
+        </span>
+        <span class="available-meta">${metaText}</span>
+      </div>
+      <button class="btn btn-small ${isInstalled ? "btn-ghost" : (isPrecompiled ? "btn-primary" : "btn-ghost")} btn-download-blob">
+        ${actionBtnText}
+      </button>
+    `;
+
+    card.querySelector(".btn-download-blob").addEventListener("click", async () => {
+      if (!isPrecompiled) {
+        try {
+          const ghUrl = `https://github.com/EpicGames/UnrealEngine/tree/${ver}-release`;
+          await openUrl(ghUrl);
+          showToast(`Abrindo repositório oficial da UE ${ver} no GitHub...`);
+        } catch (err) {
+          showToast(`Erro ao abrir navegador: ${err}`, true);
+        }
+        return;
+      }
+
+      // 1. Fecha o catálogo e pede imediatamente onde instalar
+      modal.hidden = true;
+      const destDir = await openDialog({
+        directory: true,
+        title: `Escolha a pasta onde deseja instalar a ${cleanName}`,
+      });
+      if (!destDir) {
+        modal.hidden = false;
+        return;
+      }
+
+      // 2. Inicia o download e extração automaticamente
+      startEngineDownload(blob, cleanName, destDir);
+    });
+
+    listEl.appendChild(card);
+  }
+}
+
+document.getElementById("engine-search-filter").addEventListener("input", (e) => {
+  currentSearchFilter = e.target.value;
+  renderAvailableEngines();
+});
+
+document.querySelectorAll(".filter-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".filter-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentCategoryFilter = btn.dataset.filter;
+    renderAvailableEngines();
+  });
+});
+
+async function loadEngineCatalog(force = false) {
+  const loading = document.getElementById("available-engines-loading");
+  const errorEl = document.getElementById("available-engines-error");
+  const errorMsg = document.getElementById("available-engines-error-msg");
+  const listEl = document.getElementById("available-engines-list");
+  const refreshBtn = document.getElementById("btn-refresh-catalog");
+
+  if (force && refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "↻ Atualizando…";
+  }
+
+  // Se já tivermos itens em memória ou cache, não bloqueia a tela com loading pesado
+  if (currentAvailableBlobs.length === 0) {
+    loading.hidden = false;
+    errorEl.hidden = true;
+    listEl.hidden = true;
+  }
+
+  try {
+    const blobs = await invoke("epic_list_available_engines", { forceRefresh: force });
+    loading.hidden = true;
+
+    if (!blobs || blobs.length === 0) {
+      if (currentAvailableBlobs.length === 0) {
+        errorEl.hidden = false;
+        errorMsg.textContent = "Nenhuma versão encontrada para a conta conectada.";
+      }
+      return;
+    }
+
+    currentAvailableBlobs = blobs;
+    errorEl.hidden = true;
+    listEl.hidden = false;
+    renderAvailableEngines();
+    if (force) {
+      showToast("Catálogo atualizado!");
+    }
+  } catch (err) {
+    loading.hidden = true;
+    if (currentAvailableBlobs.length === 0) {
+      errorEl.hidden = false;
+      errorMsg.textContent = String(err);
+    } else {
+      showToast(`Erro ao atualizar catálogo: ${err}`, true);
+    }
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = "↻ Atualizar";
+    }
+  }
+}
+
+// Ouve atualizações em background vindas do worker
+listen("engine-catalog-updated", (event) => {
+  if (Array.isArray(event.payload) && event.payload.length > 0) {
+    currentAvailableBlobs = event.payload;
+    const modal = document.getElementById("download-engine-modal");
+    if (!modal.hidden) {
+      renderAvailableEngines();
+      showToast("Catálogo de versões atualizado pelo servidor!");
+    }
+  }
+});
+
+document.getElementById("btn-refresh-catalog").addEventListener("click", () => loadEngineCatalog(true));
+document.getElementById("btn-retry-catalog").addEventListener("click", () => loadEngineCatalog(true));
+
+async function openEpicDownloader() {
+  const status = await invoke("epic_status");
+  if (!status.logged_in) {
+    showToast("Faça login com sua conta Epic primeiro para baixar a engine.", true);
+    document.getElementById("epic-login-status").textContent = "";
+    document.getElementById("epic-login-log").hidden = true;
+    document.getElementById("epic-login-log").textContent = "";
+    document.getElementById("epic-login-modal").hidden = false;
+    return;
+  }
+
+  const modal = document.getElementById("download-engine-modal");
+  modal.hidden = false;
+  await loadEngineCatalog(false);
+}
+
+// ---------- Gerenciador de Downloads e Gráfico Estilo Steam ----------
+const STEAM_MAX_SAMPLES = 60;
+let steamNetSpeed = 0.0;
+let steamDiskSpeed = 0.0;
+let steamPeakSpeed = 0.0;
+let steamGraphSamples = Array.from({ length: STEAM_MAX_SAMPLES }, () => ({ net: 0, disk: 0 }));
+
+function formatSteamSpeed(mbps) {
+  if (!mbps || mbps <= 0.01) return "0 bps";
+  if (mbps < 0.1) return `${(mbps * 1024).toFixed(1)} KB/s`;
+  return `${mbps.toFixed(1)} MB/s`;
+}
+
+function updateSteamMetricsDisplay() {
+  const netEl = document.getElementById("steam-net-speed");
+  const peakEl = document.getElementById("steam-peak-speed");
+  const diskEl = document.getElementById("steam-disk-speed");
+
+  if (netEl) netEl.textContent = formatSteamSpeed(steamNetSpeed);
+  if (peakEl) peakEl.textContent = formatSteamSpeed(steamPeakSpeed);
+  if (diskEl) diskEl.textContent = formatSteamSpeed(steamDiskSpeed);
+}
+
+function renderSteamGraph() {
+  const canvas = document.getElementById("steam-graph-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = Math.round(rect.width) || 600;
+  const displayHeight = Math.round(rect.height) || 150;
+
+  if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+    canvas.width = displayWidth * dpr;
+    canvas.height = displayHeight * dpr;
+  }
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  const w = displayWidth;
+  const h = displayHeight;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Escala dinâmica baseada na maior velocidade observada
+  let maxObserved = 10;
+  for (const s of steamGraphSamples) {
+    if (s.net > maxObserved) maxObserved = s.net;
+    if (s.disk > maxObserved) maxObserved = s.disk;
+  }
+  const maxVal = Math.max(maxObserved * 1.15, 10);
+
+  // Linhas horizontais sutis e rótulos
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+  ctx.lineWidth = 1;
+  const gridLines = 4;
+  for (let i = 1; i <= gridLines; i++) {
+    const y = h - (h / (gridLines + 1)) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+
+    const labelVal = (maxVal / (gridLines + 1)) * i;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+    ctx.font = "9.5px 'Fira Code', monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(formatSteamSpeed(labelVal), w - 8, y - 4);
+  }
+
+  const step = w / (STEAM_MAX_SAMPLES - 1);
+
+  // 1. Curva de Velocidade de Download (Azul / Ciano com preenchimento em degradê)
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let i = 0; i < STEAM_MAX_SAMPLES; i++) {
+    const val = steamGraphSamples[i].net;
+    const x = i * step;
+    const y = h - (val / maxVal) * (h - 16);
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+
+  const gradNet = ctx.createLinearGradient(0, 0, 0, h);
+  gradNet.addColorStop(0, "rgba(56, 189, 248, 0.28)");
+  gradNet.addColorStop(1, "rgba(56, 189, 248, 0.0)");
+  ctx.fillStyle = gradNet;
+  ctx.fill();
+
+  ctx.beginPath();
+  for (let i = 0; i < STEAM_MAX_SAMPLES; i++) {
+    const val = steamGraphSamples[i].net;
+    const x = i * step;
+    const y = h - (val / maxVal) * (h - 16);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2;
+  ctx.shadowColor = "rgba(56, 189, 248, 0.5)";
+  ctx.shadowBlur = 6;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // 2. Curva de Uso de Disco (Verde Neon)
+  ctx.beginPath();
+  for (let i = 0; i < STEAM_MAX_SAMPLES; i++) {
+    const val = steamGraphSamples[i].disk;
+    const x = i * step;
+    const y = h - (val / maxVal) * (h - 16);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "#4ade80";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Timer para empurrar amostras para o gráfico a cada segundo
+setInterval(() => {
+  steamGraphSamples.push({ net: steamNetSpeed, disk: steamDiskSpeed });
+  if (steamGraphSamples.length > STEAM_MAX_SAMPLES) {
+    steamGraphSamples.shift();
+  }
+  updateSteamMetricsDisplay();
+
+  const dlView = document.getElementById("view-downloads");
+  if (dlView && dlView.classList.contains("active")) {
+    renderSteamGraph();
+  }
+}, 1000);
+
+window.addEventListener("resize", () => {
+  const dlView = document.getElementById("view-downloads");
+  if (dlView && dlView.classList.contains("active")) {
+    renderSteamGraph();
+  }
+});
+
+document.getElementById("btn-steam-browse-catalog")?.addEventListener("click", openEpicDownloader);
+document.getElementById("btn-dl-catalog")?.addEventListener("click", openEpicDownloader);
+document.getElementById("btn-steam-gear")?.addEventListener("click", openEpicDownloader);
+
+// Controles de Download (Pausar / Retomar / Cancelar / Pasta)
+document.getElementById("btn-steam-pause")?.addEventListener("click", async () => {
+  const pauseIcon = document.getElementById("btn-steam-pause-icon");
+  const pauseText = document.getElementById("btn-steam-pause-text");
+  const statusBadge = document.getElementById("steam-status-badge");
+  const statusText = document.getElementById("steam-status-text");
+
+  if (!isDownloadPaused) {
+    await invoke("epic_pause_download");
+    isDownloadPaused = true;
+    steamNetSpeed = 0.0;
+    steamDiskSpeed = 0.0;
+    updateSteamMetricsDisplay();
+
+    if (pauseIcon) pauseIcon.textContent = "▶";
+    if (pauseText) pauseText.textContent = "Retomar";
+    if (statusBadge) {
+      statusBadge.className = "steam-card-status-pill paused";
+      if (statusText) statusText.textContent = "Paused";
+    }
+    showToast("Download pausado.");
+  } else {
+    await invoke("epic_resume_download");
+    isDownloadPaused = false;
+
+    if (pauseIcon) pauseIcon.textContent = "⏸";
+    if (pauseText) pauseText.textContent = "Pausar";
+    if (statusBadge) {
+      statusBadge.className = "steam-card-status-pill";
+      if (statusText) statusText.textContent = "Downloading…";
+    }
+    showToast("Download retomado.");
+  }
+});
+
+document.getElementById("btn-steam-cancel")?.addEventListener("click", async () => {
+  if (confirm("Deseja realmente cancelar este download? Os arquivos temporários serão excluídos.")) {
+    try {
+      await invoke("epic_cancel_download");
+    } catch (e) {}
+
+    isDownloadActive = false;
+    isDownloadPaused = false;
+    steamNetSpeed = 0.0;
+    steamDiskSpeed = 0.0;
+    updateSteamMetricsDisplay();
+
+    const activeCard = document.getElementById("steam-active-card");
+    const emptyQueue = document.getElementById("steam-empty-queue");
+    const queueCount = document.getElementById("steam-queue-count");
+    if (activeCard) activeCard.hidden = true;
+    if (emptyQueue) emptyQueue.hidden = false;
+    if (queueCount) queueCount.textContent = "Up Next (0)";
+
+    updateTopDownloadWidgetVisibility();
+    showToast("Download cancelado pelo usuário.");
+  }
+});
+
+document.getElementById("btn-steam-folder")?.addEventListener("click", async () => {
+  if (currentDownloadDestDir) {
+    try {
+      await invoke("open_path_in_file_manager", { path: currentDownloadDestDir });
+    } catch (err) {
+      showToast(String(err), true);
+    }
+  }
+});
+
+async function startEngineDownload(blob, cleanName, destDir) {
+  // 1. Abre diretamente a view de Downloads estilo Steam
+  switchView("downloads");
+
+  isDownloadActive = true;
+  isDownloadPaused = false;
+  currentDownloadDestDir = destDir;
+  updateTopDownloadWidgetVisibility();
+
+  const pauseIcon = document.getElementById("btn-steam-pause-icon");
+  const pauseText = document.getElementById("btn-steam-pause-text");
+  if (pauseIcon) pauseIcon.textContent = "⏸";
+  if (pauseText) pauseText.textContent = "Pausar";
+
+  const activeCard = document.getElementById("steam-active-card");
+  const emptyQueue = document.getElementById("steam-empty-queue");
+  const queueCount = document.getElementById("steam-queue-count");
+  const cardTitle = document.getElementById("steam-card-title");
+  const cardPath = document.getElementById("steam-card-path");
+  const statusBadge = document.getElementById("steam-status-badge");
+  const statusText = document.getElementById("steam-status-text");
+  const cardProgress = document.getElementById("steam-card-progress");
+  const cardPercent = document.getElementById("steam-card-percent");
+  const cardBytes = document.getElementById("steam-card-bytes");
+  const cardSpeed = document.getElementById("steam-card-speed");
+  const cardEta = document.getElementById("steam-card-eta");
+
+  const topTitle = document.getElementById("top-dl-title");
+  const topBar = document.getElementById("top-dl-bar");
+  const topPercent = document.getElementById("top-dl-percent");
+  const topSub = document.getElementById("top-dl-sub");
+
+  if (emptyQueue) emptyQueue.hidden = true;
+  if (activeCard) activeCard.hidden = false;
+  if (queueCount) queueCount.textContent = "Up Next (1)";
+
+  if (cardTitle) cardTitle.textContent = cleanName;
+  if (cardPath) cardPath.textContent = destDir;
+  if (statusBadge) {
+    statusBadge.className = "steam-card-status-pill";
+    if (statusText) statusText.textContent = "Fetching download link…";
+  }
+  if (cardProgress) {
+    cardProgress.style.width = "0%";
+    cardProgress.className = "steam-progress-fill";
+  }
+  if (cardPercent) cardPercent.textContent = "0%";
+  if (cardBytes) cardBytes.textContent = "0.00 GB / Calculando…";
+  if (cardSpeed) cardSpeed.textContent = "Conectando…";
+  if (cardEta) cardEta.textContent = "Obtendo autorização segura da Epic Games…";
+
+  if (topTitle) topTitle.textContent = `Baixando ${cleanName}…`;
+  if (topBar) topBar.style.width = "0%";
+  if (topPercent) topPercent.textContent = "0%";
+  if (topSub) topSub.textContent = "Fetching download link…";
+
+  let finalBlob = { ...blob };
+
+  // Se o blob ainda não possui a URL pré-assinada da AWS S3, resolve silenciosamente em background
+  if (!finalBlob.url) {
+    try {
+      const captured = await invoke("epic_open_download_window", { targetVersion: blob.version });
+      if (captured && captured.url) {
+        const cleanZipName = (captured.name && captured.name.endsWith(".zip") && captured.name.startsWith("Linux_Unreal_Engine"))
+          ? captured.name
+          : blob.name;
+        finalBlob = { ...blob, ...captured, name: cleanZipName };
+        if (statusText) statusText.textContent = "Downloading…";
+        if (cardEta) cardEta.textContent = "Iniciando transferência da AWS S3…";
+        if (topSub) topSub.textContent = "Iniciando download…";
+      } else {
+        throw new Error("A Epic Games não retornou a URL direta para esta versão.");
+      }
+    } catch (err) {
+      showToast(`Erro ao preparar download: ${err}`, true);
+      isDownloadActive = false;
+      if (emptyQueue) emptyQueue.hidden = false;
+      if (activeCard) activeCard.hidden = true;
+      if (queueCount) queueCount.textContent = "Up Next (0)";
+      updateTopDownloadWidgetVisibility();
+      return;
+    }
+  }
+
+  let downloadDone = false;
+  const unlistenExtract = await listen("engine-extract-progress", (event) => {
+    const pct = Math.round(event.payload.percent);
+    steamNetSpeed = 0.0;
+    steamDiskSpeed = 75.0; // Velocidade de gravação no disco durante a extração
+    updateSteamMetricsDisplay();
+
+    if (downloadDone) {
+      if (statusBadge) {
+        statusBadge.className = "steam-card-status-pill extracting";
+        if (statusText) statusText.textContent = "Extracting…";
+      }
+      if (cardProgress) {
+        cardProgress.style.width = `${event.payload.percent}%`;
+        cardProgress.className = "steam-progress-fill extracting";
+      }
+      if (cardPercent) cardPercent.textContent = `${pct}%`;
+      if (cardBytes) cardBytes.textContent = "Descompactando arquivos no diretório selecionado";
+      if (cardSpeed) cardSpeed.textContent = "💾 Gravando no disco";
+      if (cardEta) cardEta.textContent = event.payload.currentFile || "Instalando…";
+
+      if (topTitle) topTitle.textContent = `Extraindo ${cleanName}…`;
+      if (topBar) topBar.style.width = `${event.payload.percent}%`;
+      if (topPercent) topPercent.textContent = `${pct}%`;
+      if (topSub) topSub.textContent = "Instalando arquivos no disco…";
+    }
+  });
+
+  try {
+    const downloadPromise = invoke("epic_download_and_install", { blob: finalBlob, destDir });
+    downloadDone = true;
+    const install = await downloadPromise;
+
+    steamNetSpeed = 0.0;
+    steamDiskSpeed = 0.0;
+    updateSteamMetricsDisplay();
+
+    if (statusBadge) {
+      statusBadge.className = "steam-card-status-pill completed";
+      if (statusText) statusText.textContent = "Completed";
+    }
+    if (cardProgress) cardProgress.style.width = "100%";
+    if (cardPercent) cardPercent.textContent = "100%";
+    if (cardSpeed) cardSpeed.textContent = "Instalada";
+    if (cardEta) cardEta.textContent = "Pronta para uso!";
+
+    showToast(`Engine ${install.version} instalada e registrada com sucesso!`);
+    await refreshEngines();
+    await refreshProjects();
+
+    setTimeout(() => {
+      if (activeCard) activeCard.hidden = true;
+      if (emptyQueue) emptyQueue.hidden = false;
+      if (queueCount) queueCount.textContent = "Up Next (0)";
+    }, 6000);
+  } catch (err) {
+    if (!String(err).includes("cancelado")) {
+      showToast(`Erro durante download/instalação: ${err}`, true);
+    }
+    steamNetSpeed = 0.0;
+    steamDiskSpeed = 0.0;
+    updateSteamMetricsDisplay();
+    if (activeCard) activeCard.hidden = true;
+    if (emptyQueue) emptyQueue.hidden = false;
+    if (queueCount) queueCount.textContent = "Up Next (0)";
+  } finally {
+    unlistenExtract();
+    isDownloadActive = false;
+    isDownloadPaused = false;
+    currentDownloadDestDir = "";
+    updateTopDownloadWidgetVisibility();
+  }
+}
+
+listen("engine-download-progress", (event) => {
+  const { percent, bytesDownloaded, totalBytes, speedMbps, isPaused } = event.payload;
+  const pct = Math.round(percent);
+  const dlGb = (bytesDownloaded / 1e9).toFixed(2);
+  const totalGb = (totalBytes / 1e9).toFixed(2);
+
+  const statusBadge = document.getElementById("steam-status-badge");
+  const statusText = document.getElementById("steam-status-text");
+  const pauseIcon = document.getElementById("btn-steam-pause-icon");
+  const pauseText = document.getElementById("btn-steam-pause-text");
+
+  if (isPaused) {
+    isDownloadPaused = true;
+    steamNetSpeed = 0.0;
+    steamDiskSpeed = 0.0;
+    updateSteamMetricsDisplay();
+    if (pauseIcon) pauseIcon.textContent = "▶";
+    if (pauseText) pauseText.textContent = "Retomar";
+    if (statusBadge) {
+      statusBadge.className = "steam-card-status-pill paused";
+      if (statusText) statusText.textContent = "Paused";
+    }
+  } else {
+    isDownloadPaused = false;
+    steamNetSpeed = speedMbps;
+    steamDiskSpeed = speedMbps;
+    if (speedMbps > steamPeakSpeed) {
+      steamPeakSpeed = speedMbps;
+    }
+    updateSteamMetricsDisplay();
+    if (pauseIcon) pauseIcon.textContent = "⏸";
+    if (pauseText) pauseText.textContent = "Pausar";
+    if (statusBadge && statusBadge.classList.contains("paused")) {
+      statusBadge.className = "steam-card-status-pill";
+      if (statusText) statusText.textContent = "Downloading…";
+    }
+  }
+
+  // Atualiza o Card Ativo na aba de Downloads
+  const cardProgress = document.getElementById("steam-card-progress");
+  const cardPercent = document.getElementById("steam-card-percent");
+  const cardBytes = document.getElementById("steam-card-bytes");
+  const cardSpeed = document.getElementById("steam-card-speed");
+  const cardEta = document.getElementById("steam-card-eta");
+
+  if (cardProgress) cardProgress.style.width = `${percent}%`;
+  if (cardPercent) cardPercent.textContent = `${pct}%`;
+  if (cardBytes) cardBytes.textContent = `${dlGb} GB / ${totalGb} GB`;
+  if (cardSpeed) cardSpeed.textContent = isPaused ? "Pausado" : `⚡ ${speedMbps.toFixed(1)} MB/s`;
+
+  if (cardEta) {
+    if (isPaused) {
+      cardEta.textContent = "Download pausado";
+    } else {
+      const remainingBytes = Math.max(0, totalBytes - bytesDownloaded);
+      if (speedMbps > 0.1 && remainingBytes > 0) {
+        const remainingSec = remainingBytes / (speedMbps * 1e6);
+        if (remainingSec < 60) {
+          cardEta.textContent = `~${Math.round(remainingSec)}s restantes`;
+        } else {
+          const mins = Math.round(remainingSec / 60);
+          cardEta.textContent = `~${mins} min restantes`;
+        }
+      } else {
+        cardEta.textContent = "Calculando tempo restante…";
+      }
+    }
+  }
+
+  // Atualização em tempo real do widget na Topbar (SOMENTE se NÃO estiver na aba Downloads)
+  if (currentView !== "downloads") {
+    const topActive = document.getElementById("top-download-active");
+    const topBtn = document.getElementById("btn-open-epic-downloader");
+    const topBar = document.getElementById("top-dl-bar");
+    const topPercent = document.getElementById("top-dl-percent");
+    const topSub = document.getElementById("top-dl-sub");
+
+    if (topActive && topBar && topPercent && topSub) {
+      if (topBtn) topBtn.hidden = true;
+      topActive.hidden = false;
+      topBar.style.width = `${percent}%`;
+      topPercent.textContent = `${pct}%`;
+      topSub.textContent = isPaused ? `Pausado • ${dlGb}/${totalGb} GB` : `⚡ ${speedMbps.toFixed(1)} MB/s • ${dlGb}/${totalGb} GB`;
+    }
+  } else {
+    // Na aba downloads, garante que fica estritamente oculta
+    const topActive = document.getElementById("top-download-active");
+    if (topActive) topActive.hidden = true;
+  }
+});
+
+// Clicar no widget de download na barra superior leva direto para a aba Downloads
+const topDownloadActiveWidget = document.getElementById("top-download-active");
+if (topDownloadActiveWidget) {
+  topDownloadActiveWidget.style.cursor = "pointer";
+  topDownloadActiveWidget.addEventListener("click", () => {
+    switchView("downloads");
+  });
+}
+
+// ==========================================================================
+// Biblioteca / Vault Unreal (Plugins, Projetos e Assets)
+// ==========================================================================
+
+let vaultItems = [];
+let vaultFilteredItems = [];
+let vaultLoaded = false;
+let vaultFilter = "all";
+let vaultSearchQuery = "";
+let vaultRenderLimit = 40;
+let selectedVaultItem = null;
+let isVaultDownloading = false;
+
+async function refreshVault(forceRefresh = false) {
+  const loading = document.getElementById("vault-loading");
+  const empty = document.getElementById("vault-empty");
+
+  if (!vaultLoaded && loading) loading.hidden = false;
+  if (empty) empty.hidden = true;
+
+  try {
+    const items = await invoke("list_vault_items", { forceRefresh });
+    vaultItems = items || [];
+    vaultLoaded = true;
+    if (loading) loading.hidden = true;
+    applyVaultFilters();
+    if (forceRefresh) {
+      showToast(`Biblioteca sincronizada (${vaultItems.length} itens encontrados)`);
+    }
+  } catch (err) {
+    if (loading) loading.hidden = true;
+    showToast(`Erro ao carregar biblioteca da Epic: ${err}`, true);
+  }
+}
+
+function applyVaultFilters() {
+  const query = vaultSearchQuery.toLowerCase().trim();
+  vaultFilteredItems = vaultItems.filter((item) => {
+    if (vaultFilter !== "all" && item.item_type !== vaultFilter) {
+      return false;
+    }
+    if (query) {
+      const matchTitle = item.title.toLowerCase().includes(query);
+      const matchDev = item.developer.toLowerCase().includes(query);
+      const matchDesc = item.description.toLowerCase().includes(query);
+      const matchVer = item.releases.some((r) =>
+        r.compatible_apps.some((app) => app.toLowerCase().includes(query))
+      );
+      if (!matchTitle && !matchDev && !matchDesc && !matchVer) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  renderVaultGrid(true);
+}
+
+function renderVaultGrid(resetLimit = true) {
+  const grid = document.getElementById("vault-grid");
+  const empty = document.getElementById("vault-empty");
+  if (!grid) return;
+
+  if (resetLimit) vaultRenderLimit = 40;
+  grid.innerHTML = "";
+
+  if (vaultFilteredItems.length === 0) {
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const slice = vaultFilteredItems.slice(0, vaultRenderLimit);
+  for (const item of slice) {
+    grid.appendChild(createVaultCard(item));
+  }
+
+  if (vaultFilteredItems.length > vaultRenderLimit) {
+    const loadMoreBox = document.createElement("div");
+    loadMoreBox.style.gridColumn = "1 / -1";
+    loadMoreBox.style.textAlign = "center";
+    loadMoreBox.style.padding = "24px 0";
+    loadMoreBox.innerHTML = `
+      <button class="btn btn-ghost" id="btn-vault-load-more" style="padding: 8px 24px;">
+        Carregar mais (${vaultFilteredItems.length - vaultRenderLimit} itens restantes)…
+      </button>
+    `;
+    loadMoreBox.querySelector("#btn-vault-load-more").addEventListener("click", () => {
+      vaultRenderLimit += 40;
+      renderVaultGrid(false);
+    });
+    grid.appendChild(loadMoreBox);
+  }
+}
+
+function createVaultCard(item) {
+  const card = document.createElement("div");
+  card.className = "vault-card";
+
+  const typeLabels = {
+    plugin: "Plugin",
+    project: "Projeto",
+    asset_pack: "Conteúdo",
+    other: "Item",
+  };
+  const typeLabel = typeLabels[item.item_type] || "Item";
+
+  const compatibleVersions = Array.from(
+    new Set(
+      item.releases.flatMap((r) =>
+        r.compatible_apps.map((app) => app.replace("UE_", ""))
+      )
+    )
+  ).slice(0, 4);
+
+  const thumbHtml = item.thumbnail_url
+    ? `<img src="${item.thumbnail_url}" alt="${item.title}" loading="lazy" />`
+    : `<div class="vault-card-placeholder">📦</div>`;
+
+  card.innerHTML = `
+    <div class="vault-card-cover">
+      ${thumbHtml}
+      <span class="vault-type-badge ${item.item_type}">${typeLabel}</span>
+    </div>
+    <div class="vault-card-body">
+      <h3 class="vault-card-title" title="${item.title}">${item.title}</h3>
+      <span class="vault-card-dev" title="${item.developer}">${item.developer}</span>
+      <div class="vault-card-versions">
+        ${compatibleVersions.map((v) => `<span class="vault-ver-tag">UE ${v}</span>`).join("")}
+      </div>
+      <div class="vault-card-footer">
+        <button class="btn-vault-install">
+          <span>Opções de Instalação ›</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  card.querySelector(".btn-vault-install").addEventListener("click", () => {
+    openVaultActionModal(item);
+  });
+
+  return card;
+}
+
+// ---------- Modal de Ação do Vault ----------
+function openVaultActionModal(item) {
+  selectedVaultItem = item;
+  const modal = document.getElementById("vault-action-modal");
+  const title = document.getElementById("vault-modal-title");
+  const dev = document.getElementById("vault-modal-dev");
+  const desc = document.getElementById("vault-modal-desc");
+  const thumb = document.getElementById("vault-modal-thumb");
+  const releaseSelect = document.getElementById("select-vault-release");
+  const projectSelect = document.getElementById("select-vault-target-project");
+  const engineSelect = document.getElementById("select-vault-target-engine");
+  const newProjEngineSelect = document.getElementById("select-vault-new-proj-engine");
+  const newProjDirInput = document.getElementById("input-vault-new-proj-dir");
+  const newProjNameInput = document.getElementById("input-vault-new-proj-name");
+  const progressBox = document.getElementById("vault-modal-progress-box");
+  const confirmBtn = document.getElementById("btn-confirm-vault-action");
+
+  if (!modal) return;
+
+  if (title) title.textContent = item.title;
+  if (dev) dev.textContent = `Por ${item.developer}`;
+  if (desc) desc.textContent = item.description || "Sem descrição disponível.";
+  if (thumb) {
+    thumb.src = item.thumbnail_url || "";
+    thumb.style.display = item.thumbnail_url ? "block" : "none";
+  }
+
+  // Preencher versões disponíveis
+  if (releaseSelect) {
+    if (item.releases.length === 0) {
+      releaseSelect.innerHTML = `<option value="">Nenhuma versão compatível listada</option>`;
+    } else {
+      releaseSelect.innerHTML = item.releases
+        .map((r) => {
+          const apps = r.compatible_apps.length > 0 ? ` [${r.compatible_apps.join(", ")}]` : "";
+          const title = r.version_title || r.app_id;
+          return `<option value="${r.app_id}">${title}${apps}</option>`;
+        })
+        .join("");
+    }
+  }
+
+  // Preencher projetos monitorados
+  if (projectSelect) {
+    if (projects.length === 0) {
+      projectSelect.innerHTML = `<option value="">Nenhum projeto monitorado encontrado</option>`;
+    } else {
+      projectSelect.innerHTML = projects
+        .map((p) => `<option value="${p.uproject_path}">${p.name} (${p.project_dir})</option>`)
+        .join("");
+    }
+  }
+
+  // Preencher engines
+  const engineOpts = engines.map((e) => `<option value="${e.id}">Unreal Engine ${e.version} (${e.path})</option>`).join("");
+  if (engineSelect) engineSelect.innerHTML = engineOpts;
+  if (newProjEngineSelect) newProjEngineSelect.innerHTML = engineOpts;
+
+  // Sugerir nome e pasta para novo projeto
+  if (newProjNameInput) {
+    const cleanName = item.title.replace(/[^a-zA-Z0-9_]/g, "");
+    newProjNameInput.value = cleanName || "NewProject";
+  }
+  if (newProjDirInput) {
+    newProjDirInput.value = projectDirs.length > 0 ? projectDirs[0] : "";
+  }
+
+  // Selecionar ação padrão
+  if (item.item_type === "project") {
+    setVaultActionSelection("new_project");
+  } else {
+    setVaultActionSelection("project");
+  }
+
+  if (progressBox) progressBox.hidden = true;
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = `<span>Baixar e Instalar</span>`;
+  }
+
+  modal.hidden = false;
+}
+
+function closeVaultActionModal() {
+  const modal = document.getElementById("vault-action-modal");
+  if (modal) modal.hidden = true;
+  selectedVaultItem = null;
+}
+
+function setVaultActionSelection(action) {
+  const cardProj = document.getElementById("card-vault-act-project");
+  const cardEngine = document.getElementById("card-vault-act-engine");
+  const cardNewProj = document.getElementById("card-vault-act-new-proj");
+
+  const panelProj = document.getElementById("vault-panel-project");
+  const panelEngine = document.getElementById("vault-panel-engine");
+  const panelNewProj = document.getElementById("vault-panel-new-proj");
+
+  cardProj?.classList.toggle("active", action === "project");
+  cardEngine?.classList.toggle("active", action === "engine");
+  cardNewProj?.classList.toggle("active", action === "new_project");
+
+  const radio = document.querySelector(`input[name="vault-act"][value="${action}"]`);
+  if (radio) radio.checked = true;
+
+  if (panelProj) panelProj.hidden = action !== "project";
+  if (panelEngine) panelEngine.hidden = action !== "engine";
+  if (panelNewProj) panelNewProj.hidden = action !== "new_project";
+}
+
+// Listeners de alternância de ação no modal
+document.querySelectorAll("input[name='vault-act']").forEach((radio) => {
+  radio.addEventListener("change", (e) => {
+    setVaultActionSelection(e.target.value);
+  });
+});
+document.getElementById("card-vault-act-project")?.addEventListener("click", () => setVaultActionSelection("project"));
+document.getElementById("card-vault-act-engine")?.addEventListener("click", () => setVaultActionSelection("engine"));
+document.getElementById("card-vault-act-new-proj")?.addEventListener("click", () => setVaultActionSelection("new_project"));
+
+// Botão Procurar pasta no modal do Vault
+document.getElementById("btn-browse-vault-proj-dir")?.addEventListener("click", async () => {
+  try {
+    const selected = await openDialog({ directory: true, multiple: false });
+    if (selected) {
+      document.getElementById("input-vault-new-proj-dir").value = selected;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+// Botão Cancelar modal do Vault
+document.getElementById("btn-cancel-vault-modal")?.addEventListener("click", () => {
+  if (isVaultDownloading) {
+    invoke("cancel_vault_download");
+  }
+  closeVaultActionModal();
+});
+
+// Botão Confirmar Ação (Baixar e Instalar)
+document.getElementById("btn-confirm-vault-action")?.addEventListener("click", async () => {
+  if (!selectedVaultItem) return;
+
+  const releaseSelect = document.getElementById("select-vault-release");
+  const appId = releaseSelect?.value;
+  if (!appId) {
+    showToast("Selecione uma versão compatível.", true);
+    return;
+  }
+
+  const action = document.querySelector("input[name='vault-act']:checked")?.value || "project";
+  const progressBox = document.getElementById("vault-modal-progress-box");
+  const confirmBtn = document.getElementById("btn-confirm-vault-action");
+
+  if (action === "project") {
+    const uprojectPath = document.getElementById("select-vault-target-project")?.value;
+    if (!uprojectPath) {
+      showToast("Selecione um projeto de destino.", true);
+      return;
+    }
+
+    try {
+      isVaultDownloading = true;
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = `<span>Instalando… ⏳</span>`;
+      if (progressBox) progressBox.hidden = false;
+
+      const installedPath = await invoke("install_vault_to_project", {
+        catalogItemId: selectedVaultItem.id,
+        appId,
+        uprojectPath,
+      });
+
+      showToast(`Plugin instalado com sucesso em: ${installedPath}`);
+      closeVaultActionModal();
+      await refreshProjects();
+    } catch (err) {
+      showToast(`Falha na instalação: ${err}`, true);
+    } finally {
+      isVaultDownloading = false;
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<span>Baixar e Instalar</span>`;
+    }
+  } else if (action === "engine") {
+    const engineId = document.getElementById("select-vault-target-engine")?.value;
+    if (!engineId) {
+      showToast("Selecione uma engine instalada.", true);
+      return;
+    }
+
+    try {
+      isVaultDownloading = true;
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = `<span>Instalando na Engine… ⏳</span>`;
+      if (progressBox) progressBox.hidden = false;
+
+      const installedPath = await invoke("install_vault_to_engine", {
+        catalogItemId: selectedVaultItem.id,
+        appId,
+        engineId,
+      });
+
+      showToast(`Plugin instalado na Engine em: ${installedPath}`);
+      closeVaultActionModal();
+    } catch (err) {
+      showToast(`Falha na instalação: ${err}`, true);
+    } finally {
+      isVaultDownloading = false;
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<span>Baixar e Instalar</span>`;
+    }
+  } else if (action === "new_project") {
+    const name = document.getElementById("input-vault-new-proj-name")?.value.trim();
+    const parentDir = document.getElementById("input-vault-new-proj-dir")?.value.trim();
+    const engineId = document.getElementById("select-vault-new-proj-engine")?.value;
+
+    if (!name || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+      showToast("Nome do projeto inválido (apenas letras, números e _).", true);
+      return;
+    }
+    if (!parentDir) {
+      showToast("Selecione a pasta de destino.", true);
+      return;
+    }
+    if (!engineId) {
+      showToast("Selecione uma engine associada.", true);
+      return;
+    }
+
+    try {
+      isVaultDownloading = true;
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = `<span>Criando Projeto… ⏳</span>`;
+      if (progressBox) progressBox.hidden = false;
+
+      const newProj = await invoke("create_project_from_vault", {
+        catalogItemId: selectedVaultItem.id,
+        appId,
+        projectName: name,
+        parentDir,
+        engineId,
+      });
+
+      if (!projectDirs.includes(parentDir)) {
+        await invoke("add_project_dir", { path: parentDir });
+        await refreshProjectDirs();
+      }
+
+      showToast(`Projeto ${newProj.name} criado com sucesso a partir do Vault!`);
+      closeVaultActionModal();
+      await refreshProjects();
+    } catch (err) {
+      showToast(`Falha ao criar projeto: ${err}`, true);
+    } finally {
+      isVaultDownloading = false;
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<span>Baixar e Instalar</span>`;
+    }
+  }
+});
+
+// Listener de Progresso de Download do Vault
+listen("vault-download-progress", (event) => {
+  const p = event.payload;
+  const statusEl = document.getElementById("vault-progress-status");
+  const barEl = document.getElementById("vault-progress-bar");
+  const pctEl = document.getElementById("vault-progress-percent");
+  const bytesEl = document.getElementById("vault-progress-bytes");
+  const speedEl = document.getElementById("vault-progress-speed");
+
+  if (statusEl) statusEl.textContent = p.title;
+  if (barEl) barEl.style.width = `${Math.min(100, Math.max(0, p.percentage))}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(p.percentage)}%`;
+  if (bytesEl && p.total_bytes > 0) {
+    const dlMb = (p.downloaded_bytes / (1024 * 1024)).toFixed(1);
+    const totMb = (p.total_bytes / (1024 * 1024)).toFixed(1);
+    bytesEl.textContent = `${dlMb} MB / ${totMb} MB`;
+  }
+  if (speedEl && p.speed_bytes_per_sec > 0) {
+    const spdMb = (p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1);
+    speedEl.textContent = `⚡ ${spdMb} MB/s`;
+  }
+});
+
+// Filtros do Vault (Tabs)
+document.querySelectorAll("#vault-filter-tabs .filter-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll("#vault-filter-tabs .filter-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    vaultFilter = tab.dataset.filter || "all";
+    applyVaultFilters();
+  });
+});
+
+// Busca com debounce
+let vaultSearchTimer = null;
+document.getElementById("vault-search-input")?.addEventListener("input", (e) => {
+  clearTimeout(vaultSearchTimer);
+  vaultSearchTimer = setTimeout(() => {
+    vaultSearchQuery = e.target.value;
+    applyVaultFilters();
+  }, 200);
+});
+
+// Botão de sincronização manual da biblioteca
+document.getElementById("btn-refresh-vault")?.addEventListener("click", async () => {
+  await refreshVault(true);
+});
+
+// ---------- Boot ----------
+(async function init() {
+  // Garante que o widget ativo começa estritamente oculto se não houver download em andamento
+  const topActive = document.getElementById("top-download-active");
+  const topBtn = document.getElementById("btn-open-epic-downloader");
+  if (topActive) topActive.hidden = true;
+  if (topBtn) topBtn.hidden = false;
+
+  await refreshEpicStatus();
+  await checkGpuCompatibility();
+  await refreshDetectedIdes();
+  await refreshEngines();
+  await refreshProjectDirs();
+  await refreshProjects();
+})();
