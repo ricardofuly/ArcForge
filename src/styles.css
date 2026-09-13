@@ -318,6 +318,8 @@ button { font-family: inherit; user-select: none; }
   flex-direction: column;
   gap: 3px;
   min-width: 140px;
+  max-width: 220px;
+  overflow: hidden;
 }
 
 .dl-label-title {
@@ -325,6 +327,8 @@ button { font-family: inherit; user-select: none; }
   font-weight: 700;
   line-height: 1.1;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dl-mini-track {
@@ -347,6 +351,8 @@ button { font-family: inherit; user-select: none; }
   opacity: 0.9;
   font-family: var(--font-mono);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dl-percent-badge {
@@ -1323,6 +1329,10 @@ button { font-family: inherit; user-select: none; }
   align-items: center;
   margin-bottom: 14px;
   transition: border-color 0.2s ease;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .steam-active-card:hover {
@@ -1344,28 +1354,51 @@ button { font-family: inherit; user-select: none; }
 
 .steam-card-main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
+  overflow: hidden;
+  width: 100%;
 }
 
 .steam-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
 }
 
-.steam-card-header h3 {
+.steam-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.steam-card-info h3 {
   font-size: 15px;
   font-weight: 700;
   color: #fff;
-  margin: 0 0 2px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .steam-card-path {
   font-size: 11px;
   color: var(--text-faint);
   font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  max-width: 100%;
 }
 
 .steam-card-status-pill {
@@ -1379,6 +1412,8 @@ button { font-family: inherit; user-select: none; }
   background: rgba(56, 189, 248, 0.12);
   color: #38bdf8;
   border: 1px solid rgba(56, 189, 248, 0.25);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .steam-card-status-pill.extracting {
@@ -1393,13 +1428,21 @@ button { font-family: inherit; user-select: none; }
   border-color: rgba(34, 197, 94, 0.3);
 }
 
+.steam-card-status-pill.paused {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border-color: rgba(234, 179, 8, 0.3);
+}
+
 .steam-progress-track {
   background: #080a0e;
   border-radius: 6px;
   height: 8px;
   overflow: hidden;
   width: 100%;
+  min-width: 0;
   border: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .steam-progress-fill {
@@ -1417,36 +1460,69 @@ button { font-family: inherit; user-select: none; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   font-family: var(--font-mono);
+  min-width: 0;
+  width: 100%;
+  line-height: 1.2;
 }
 
 .steam-stat-left {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .steam-percent-big {
   font-size: 16px;
   font-weight: 800;
   color: #fff;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .steam-stat-sub {
   font-size: 11.5px;
   color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .steam-stat-right {
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .steam-speed-text {
   font-size: 13px;
   font-weight: 700;
   color: #38bdf8;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+#steam-card-eta {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
+  text-align: right;
+  display: inline-block;
 }
 
 /* Fila Vazia */
@@ -1464,6 +1540,8 @@ button { font-family: inherit; user-select: none; }
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .btn-steam-action {

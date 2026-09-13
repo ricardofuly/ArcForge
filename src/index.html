@@ -64,7 +64,7 @@
       <div class="sidebar-footer">
         <span class="sidebar-meta" id="sidebar-stats">0 engines • 0 projetos</span>
         <button class="sidebar-meta-btn" id="btn-check-updates" title="Clique para verificar atualizações">
-          <span>Unreal Launcher v0.1.1</span>
+          <span>Unreal Launcher v0.1.2</span>
           <span class="sidebar-update-icon">🔄</span>
         </button>
       </div>
@@ -200,8 +200,8 @@
           <div id="gpu-compatibility-banner" class="gpu-compat-banner" hidden>
             <div class="gpu-compat-icon">🛡️</div>
             <div class="gpu-compat-text">
-              <strong id="gpu-compat-title">Modo de Segurança Vulkan SM5 Ativado</strong>
-              <p id="gpu-compat-desc">Sua GPU AMD Polaris requer Vulkan SM5 para evitar travamentos nos shaders. O launcher aplica o parâmetro <code>-sm5</code> automaticamente ao iniciar.</p>
+              <strong id="gpu-compat-title">Modo Estável Ativado (OpenGL + SM5/SM6)</strong>
+              <p id="gpu-compat-desc">O editor é iniciado com <code>-opengl</code> para evitar travamentos ao fechar janelas dock no Linux. SM5 e SM6 estão configurados no projeto sem avisos da engine.</p>
             </div>
           </div>
           <div id="watched-dirs" class="chip-row"></div>
@@ -321,9 +321,9 @@
 
             <div class="steam-card-main">
               <div class="steam-card-header">
-                <div>
+                <div class="steam-card-info">
                   <h3 id="steam-card-title">Unreal Engine</h3>
-                  <span id="steam-card-path" class="steam-card-path">/pasta/de/destino</span>
+                  <span id="steam-card-path" class="steam-card-path" title="/pasta/de/destino">/pasta/de/destino</span>
                 </div>
                 <div class="steam-card-actions">
                   <button class="btn-steam-action" id="btn-steam-pause" title="Pausar / Retomar download">
@@ -525,9 +525,9 @@
             <span class="label-hint" id="gpu-hint-rhi"></span>
           </label>
           <select id="select-new-proj-rhi" class="select-dark" style="width: 100%;">
-            <option value="auto">⚡ Automático (Recomendado pelo launcher)</option>
-            <option value="sm5">🛡️ Vulkan SM5 (Alta compatibilidade — Recomendado para AMD RX 580/Polaris/antigas)</option>
-            <option value="sm6">🚀 Vulkan SM6 (Avançado — Requer GPU recente com suporte completo)</option>
+            <option value="auto">⚡ OpenGL + SM5/SM6 (Recomendado — Sem crash ao fechar abas/dock)</option>
+            <option value="sm5">🛡️ SM5 (Shader Model 5 com OpenGL)</option>
+            <option value="sm6">🚀 SM6 (Shader Model 6 com OpenGL)</option>
           </select>
         </div>
 

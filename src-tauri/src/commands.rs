@@ -491,9 +491,16 @@ pub fn set_project_rhi_mode(
     if rhi_mode == "auto" {
         cfg.project_rhi_overrides.remove(&uproject_path);
     } else {
-        cfg.project_rhi_overrides.insert(uproject_path, rhi_mode);
+        cfg.project_rhi_overrides.insert(uproject_path.clone(), rhi_mode);
     }
-    cfg.save().map_err(to_err)
+    cfg.save().map_err(to_err)?;
+
+    // Sincroniza o DefaultEngine.ini do projeto
+    if let Some(parent) = std::path::Path::new(&uproject_path).parent() {
+        let _ = project::ensure_project_target_rhis(parent);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -616,6 +623,9 @@ pub async fn create_project_from_vault(
     let dest_dir = crate::vault::download_and_install_vault_item(&window, &catalog_item_id, &app_id, target)
         .await
         .map_err(to_err)?;
+
+    // Garante configurações corretas de SM5 e SM6 no projeto baixado do Vault
+    let _ = project::ensure_project_target_rhis(&dest_dir);
 
     // Sincroniza Install.ini no host e nas sandboxes de Flatpaks
     let _ = crate::engine::sync_install_ini(&engines);

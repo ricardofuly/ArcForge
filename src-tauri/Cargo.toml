@@ -1,7 +1,8 @@
 [package]
 name = "unreal-launcher"
-version = "0.1.1"
-description = "Launcher para gerenciar instalações da Unreal Engine e projetos no Linux"
+version = "0.1.2"
+description = "Launcher para gerenciar instalações da Unreal Engine e projetos no Linux e Windows"
+authors = ["Ricardo Fuly <89115052+ricardofuly@users.noreply.github.com>"]
 edition = "2021"
 
 [build-dependencies]

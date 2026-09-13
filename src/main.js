@@ -28,6 +28,49 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+/**
+ * Trunca caminhos longos de arquivos preservando o nome da raiz e o arquivo final
+ * Ex: "Linux_Unreal_Engine_5.5.0/Engine/Source/Runtime/.../Material.h" -> "Linux_Unreal_Engine_5.5.0/…/Material.h"
+ */
+function truncateFilePath(path, maxLength = 50) {
+  if (!path || typeof path !== "string") return "";
+  const clean = path.replace(/^(inflating|extracting|creating):\s*/i, "").trim();
+  if (!clean || clean.length <= maxLength) return clean;
+
+  const parts = clean.split("/");
+  if (parts.length <= 2) {
+    const half = Math.floor((maxLength - 3) / 2);
+    return clean.slice(0, half) + "…" + clean.slice(-half);
+  }
+
+  const filename = parts.pop();
+  const root = parts[0];
+  const maxMiddle = maxLength - root.length - filename.length - 4;
+
+  if (maxMiddle >= 4 && parts.length > 1) {
+    const parentDir = parts[parts.length - 1];
+    if (root.length + parentDir.length + filename.length + 6 <= maxLength) {
+      return `${root}/…/${parentDir}/${filename}`;
+    }
+  }
+
+  if (root.length + filename.length + 3 <= maxLength) {
+    return `${root}/…/${filename}`;
+  }
+
+  const avail = maxLength - filename.length - 3;
+  if (avail > 6) {
+    return `${clean.slice(0, avail)}…/${filename}`;
+  }
+
+  if (filename.length > maxLength) {
+    const half = Math.floor((maxLength - 3) / 2);
+    return filename.slice(0, half) + "…" + filename.slice(-half);
+  }
+
+  return `…/${filename}`;
+}
+
 
 async function refreshDetectedIdes() {
   try {
@@ -298,8 +341,14 @@ document.getElementById("choice-extract-zip").addEventListener("click", async ()
   if (queueCount) queueCount.textContent = "Up Next (1)";
 
   const zipFilename = zipPath.split("/").pop() || "UnrealEngine.zip";
-  if (cardTitle) cardTitle.textContent = zipFilename;
-  if (cardPath) cardPath.textContent = destDir;
+  if (cardTitle) {
+    cardTitle.textContent = zipFilename;
+    cardTitle.title = zipFilename;
+  }
+  if (cardPath) {
+    cardPath.textContent = destDir;
+    cardPath.title = destDir;
+  }
   if (statusBadge) {
     statusBadge.className = "steam-card-status-pill extracting";
     if (statusText) statusText.textContent = "Extracting…";
@@ -309,9 +358,15 @@ document.getElementById("choice-extract-zip").addEventListener("click", async ()
     cardProgress.className = "steam-progress-fill extracting";
   }
   if (cardPercent) cardPercent.textContent = "0%";
-  if (cardBytes) cardBytes.textContent = "Descompactando pacote local";
+  if (cardBytes) {
+    cardBytes.textContent = "Descompactando pacote local…";
+    cardBytes.title = `Descompactando em ${destDir}`;
+  }
   if (cardSpeed) cardSpeed.textContent = "💾 Gravando no disco";
-  if (cardEta) cardEta.textContent = "Iniciando extração…";
+  if (cardEta) {
+    cardEta.textContent = "Iniciando extração…";
+    cardEta.title = "Iniciando extração…";
+  }
 
   steamNetSpeed = 0.0;
   steamDiskSpeed = 75.0;
@@ -351,7 +406,11 @@ listen("engine-extract-progress", (event) => {
 
   if (cardProgress) cardProgress.style.width = `${percent}%`;
   if (cardPercent) cardPercent.textContent = `${pct}%`;
-  if (cardEta && currentFile) cardEta.textContent = currentFile;
+  if (cardEta && currentFile) {
+    const clean = currentFile.replace(/^(inflating|extracting|creating):\s*/i, "").trim();
+    cardEta.textContent = truncateFilePath(currentFile, 50);
+    cardEta.title = clean;
+  }
 });
 
 // ---------- Projects ----------
@@ -448,8 +507,8 @@ function createModernProjectCard(proj) {
           <option value="">Selecionar Engine…</option>
           ${engineOptions}
         </select>
-        <select class="select-dark rhi-select" title="Compatibilidade Gráfica (Shader Model)" style="max-width: 110px;">
-          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>⚡ Auto</option>
+        <select class="select-dark rhi-select" title="Compatibilidade Gráfica (OpenGL + SM5/SM6)" style="max-width: 110px;">
+          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>⚡ Auto (OpenGL)</option>
           <option value="sm5" ${proj.rhi_mode === "sm5" ? "selected" : ""}>🛡️ SM5</option>
           <option value="sm6" ${proj.rhi_mode === "sm6" ? "selected" : ""}>🚀 SM6</option>
         </select>
@@ -507,7 +566,7 @@ function createModernProjectCard(proj) {
       try {
         await invoke("set_project_rhi_mode", { uprojectPath: proj.uproject_path, rhiMode: mode });
         proj.rhi_mode = mode;
-        const label = mode === "auto" ? "Automático" : mode.toUpperCase();
+        const label = mode === "auto" ? "Automático (OpenGL)" : `${mode.toUpperCase()} (OpenGL)`;
         showToast(`RHI do projeto alterado para: ${label}`);
       } catch (err) {
         showToast(String(err), true);
@@ -524,8 +583,8 @@ function createModernProjectCard(proj) {
     const rhiMode = rhiSelect ? rhiSelect.value : (proj.rhi_mode || "auto");
     try {
       await invoke("launch_project", { uprojectPath: proj.uproject_path, engineId, rhiMode });
-      const rhiLabel = rhiMode === "auto" ? (gpuInfo?.recommends_sm5 ? "SM5" : "") : rhiMode.toUpperCase();
-      showToast(`Iniciando ${proj.name}${rhiLabel ? ` (${rhiLabel})` : ""}…`);
+      const rhiLabel = rhiMode === "auto" ? "OpenGL" : `${rhiMode.toUpperCase()} (OpenGL)`;
+      showToast(`Iniciando ${proj.name} [${rhiLabel}]…`);
     } catch (err) {
       showToast(String(err), true);
     }
@@ -689,17 +748,17 @@ async function checkGpuCompatibility() {
         banner.hidden = false;
         const title = document.getElementById("gpu-compat-title");
         const desc = document.getElementById("gpu-compat-desc");
-        if (title) title.textContent = "Modo de Segurança Vulkan SM5 Ativo";
+        if (title) title.textContent = "Modo Estável Ativado (OpenGL + SM5/SM6)";
         if (desc) {
-          desc.innerHTML = `Sua GPU (<strong>${escapeHtml(gpuInfo.name)}</strong>) opera com maior estabilidade em Vulkan SM5. O launcher aplica <code>-sm5</code> automaticamente ao iniciar o editor e projetos, mantendo seus arquivos intactos.`;
+          desc.innerHTML = `Sua GPU (<strong>${escapeHtml(gpuInfo.name)}</strong>) e ambiente Linux operam com maior estabilidade em <code>-opengl</code> (evita crashes ao fechar janelas dock). SM5 e SM6 estão configurados no projeto sem avisos da engine.`;
         }
       }
       if (hint) {
-        hint.textContent = "(Vulkan SM5 recomendado para sua GPU)";
+        hint.textContent = "(OpenGL + SM5/SM6 recomendado)";
       }
       const selectNewRhi = document.getElementById("select-new-proj-rhi");
       if (selectNewRhi) {
-        selectNewRhi.value = "sm5";
+        selectNewRhi.value = "auto";
       }
     } else if (banner) {
       banner.hidden = true;
@@ -734,15 +793,11 @@ function openCreateProjectModal() {
 
 
   // Define RHI recomendado
-  if (selectRhi && gpuInfo?.recommends_sm5) {
-    selectRhi.value = "sm5";
-  } else if (selectRhi) {
+  if (selectRhi) {
     selectRhi.value = "auto";
   }
   if (gpuHint) {
-    gpuHint.textContent = gpuInfo?.recommends_sm5
-      ? "(Vulkan SM5 recomendado para sua GPU)"
-      : "";
+    gpuHint.textContent = "(OpenGL + SM5/SM6 ativado)";
   }
 
   // Sugere diretório padrão
@@ -1436,8 +1491,14 @@ async function startEngineDownload(blob, cleanName, destDir) {
   if (activeCard) activeCard.hidden = false;
   if (queueCount) queueCount.textContent = "Up Next (1)";
 
-  if (cardTitle) cardTitle.textContent = cleanName;
-  if (cardPath) cardPath.textContent = destDir;
+  if (cardTitle) {
+    cardTitle.textContent = cleanName;
+    cardTitle.title = cleanName;
+  }
+  if (cardPath) {
+    cardPath.textContent = destDir;
+    cardPath.title = destDir;
+  }
   if (statusBadge) {
     statusBadge.className = "steam-card-status-pill";
     if (statusText) statusText.textContent = "Fetching download link…";
@@ -1447,9 +1508,15 @@ async function startEngineDownload(blob, cleanName, destDir) {
     cardProgress.className = "steam-progress-fill";
   }
   if (cardPercent) cardPercent.textContent = "0%";
-  if (cardBytes) cardBytes.textContent = "0.00 GB / Calculando…";
+  if (cardBytes) {
+    cardBytes.textContent = "0.00 GB / Calculando…";
+    cardBytes.title = "Calculando tamanho total…";
+  }
   if (cardSpeed) cardSpeed.textContent = "Conectando…";
-  if (cardEta) cardEta.textContent = "Obtendo autorização segura da Epic Games…";
+  if (cardEta) {
+    cardEta.textContent = "Obtendo autorização segura…";
+    cardEta.title = "Obtendo autorização segura da Epic Games…";
+  }
 
   if (topTitle) topTitle.textContent = `Baixando ${cleanName}…`;
   if (topBar) topBar.style.width = "0%";
@@ -1468,7 +1535,10 @@ async function startEngineDownload(blob, cleanName, destDir) {
           : blob.name;
         finalBlob = { ...blob, ...captured, name: cleanZipName };
         if (statusText) statusText.textContent = "Downloading…";
-        if (cardEta) cardEta.textContent = "Iniciando transferência da AWS S3…";
+        if (cardEta) {
+          cardEta.textContent = "Iniciando download AWS S3…";
+          cardEta.title = "Iniciando transferência da AWS S3…";
+        }
         if (topSub) topSub.textContent = "Iniciando download…";
       } else {
         throw new Error("A Epic Games não retornou a URL direta para esta versão.");
@@ -1501,9 +1571,17 @@ async function startEngineDownload(blob, cleanName, destDir) {
         cardProgress.className = "steam-progress-fill extracting";
       }
       if (cardPercent) cardPercent.textContent = `${pct}%`;
-      if (cardBytes) cardBytes.textContent = "Descompactando arquivos no diretório selecionado";
+      if (cardBytes) {
+        cardBytes.textContent = "Descompactando arquivos…";
+        cardBytes.title = `Descompactando arquivos em ${destDir}`;
+      }
       if (cardSpeed) cardSpeed.textContent = "💾 Gravando no disco";
-      if (cardEta) cardEta.textContent = event.payload.currentFile || "Instalando…";
+      if (cardEta) {
+        const raw = event.payload.currentFile || "Instalando…";
+        const clean = raw.replace(/^(inflating|extracting|creating):\s*/i, "").trim();
+        cardEta.textContent = truncateFilePath(raw, 50);
+        cardEta.title = clean;
+      }
 
       if (topTitle) topTitle.textContent = `Extraindo ${cleanName}…`;
       if (topBar) topBar.style.width = `${event.payload.percent}%`;
@@ -1605,26 +1683,30 @@ listen("engine-download-progress", (event) => {
 
   if (cardProgress) cardProgress.style.width = `${percent}%`;
   if (cardPercent) cardPercent.textContent = `${pct}%`;
-  if (cardBytes) cardBytes.textContent = `${dlGb} GB / ${totalGb} GB`;
+  if (cardBytes) {
+    cardBytes.textContent = `${dlGb} GB / ${totalGb} GB`;
+    cardBytes.title = `${dlGb} GB baixados de ${totalGb} GB`;
+  }
   if (cardSpeed) cardSpeed.textContent = isPaused ? "Pausado" : `⚡ ${speedMbps.toFixed(1)} MB/s`;
 
   if (cardEta) {
+    let etaText = "Calculando tempo restante…";
     if (isPaused) {
-      cardEta.textContent = "Download pausado";
+      etaText = "Download pausado";
     } else {
       const remainingBytes = Math.max(0, totalBytes - bytesDownloaded);
       if (speedMbps > 0.1 && remainingBytes > 0) {
         const remainingSec = remainingBytes / (speedMbps * 1e6);
         if (remainingSec < 60) {
-          cardEta.textContent = `~${Math.round(remainingSec)}s restantes`;
+          etaText = `~${Math.round(remainingSec)}s restantes`;
         } else {
           const mins = Math.round(remainingSec / 60);
-          cardEta.textContent = `~${mins} min restantes`;
+          etaText = `~${mins} min restantes`;
         }
-      } else {
-        cardEta.textContent = "Calculando tempo restante…";
       }
     }
+    cardEta.textContent = etaText;
+    cardEta.title = etaText;
   }
 
   // Atualização em tempo real do widget na Topbar (SOMENTE se NÃO estiver na aba Downloads)

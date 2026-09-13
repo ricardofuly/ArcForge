@@ -427,6 +427,13 @@ pub fn launch_editor(
     }
 
     let mut cmd = Command::new(&binary);
+
+    // No Linux, força o Unreal Editor a abrir com OpenGL para evitar crash ao fechar janelas dock no Vulkan
+    #[cfg(target_os = "linux")]
+    {
+        cmd.arg("-opengl");
+    }
+
     if let Some(rhi) = rhi_mode {
         match rhi.to_lowercase().as_str() {
             "sm5" => {

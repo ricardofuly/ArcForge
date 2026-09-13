@@ -131,8 +131,19 @@ pub fn launch_project(
         ));
     }
 
+    // Antes de iniciar, garante que o DefaultEngine.ini do projeto possui SM5 e SM6 devidamente configurados
+    if let Some(project_dir) = uproject.parent() {
+        let _ = ensure_project_target_rhis(project_dir);
+    }
+
     let mut cmd = Command::new(editor);
     cmd.arg(uproject);
+
+    // No Linux, força o Unreal Editor a abrir com OpenGL para evitar crash ao fechar janelas dock no Vulkan
+    #[cfg(target_os = "linux")]
+    {
+        cmd.arg("-opengl");
+    }
 
     if let Some(rhi) = rhi_mode {
         match rhi.to_lowercase().as_str() {
@@ -651,9 +662,8 @@ pub fn create_unreal_project(
         scaffold_clean_project(&project_dir, name, &engine_assoc, is_cpp)?;
     }
 
-    if let Some(rhi) = rhi_target {
-        let _ = apply_rhi_to_default_engine_ini(&project_dir, rhi);
-    }
+    // Garante que o Config/DefaultEngine.ini possui SM5 ativado e SM6 marcado para evitar erros e avisos
+    let _ = ensure_project_target_rhis(&project_dir);
 
     let uproject_path = project_dir.join(format!("{}.uproject", name));
 
@@ -688,36 +698,60 @@ pub fn create_unreal_project(
     })
 }
 
-fn apply_rhi_to_default_engine_ini(project_dir: &Path, rhi: &str) -> Result<()> {
-    let ini_path = project_dir.join("Config/DefaultEngine.ini");
-    let mut content = if ini_path.is_file() {
+/// Garante que o Config/DefaultEngine.ini do projeto contenha as configurações
+/// corretas de Shader Model (SM5 ativado para compatibilidade e SM6 marcado para evitar avisos da engine)
+pub fn ensure_project_target_rhis(project_dir: &Path) -> Result<()> {
+    let config_dir = project_dir.join("Config");
+    if !config_dir.is_dir() {
+        let _ = std::fs::create_dir_all(&config_dir);
+    }
+    let ini_path = config_dir.join("DefaultEngine.ini");
+    let content = if ini_path.is_file() {
         std::fs::read_to_string(&ini_path).unwrap_or_default()
     } else {
         String::new()
     };
 
     let section_header = "[/Script/LinuxTargetPlatform.LinuxTargetSettings]";
-    if rhi == "sm5" {
-        let sm5_block = r#"
-[/Script/LinuxTargetPlatform.LinuxTargetSettings]
--TargetedRHIs=SF_VULKAN_SM6
-+TargetedRHIs=SF_VULKAN_SM5
-"#;
-        if !content.contains(section_header) {
-            content.push_str(sm5_block);
-        } else {
-            content = content.replace("+TargetedRHIs=SF_VULKAN_SM6\n", "");
-            content = content.replace("+TargetedRHIs=SF_VULKAN_SM6\r\n", "");
-            if !content.contains("TargetedRHIs=SF_VULKAN_SM5") {
-                content = content.replace(
-                    section_header,
-                    &format!("{}\n+TargetedRHIs=SF_VULKAN_SM5", section_header),
-                );
-            }
+
+    // Remove qualquer exclusão antiga do SM6 (ex: -TargetedRHIs=SF_VULKAN_SM6)
+    let mut updated = content
+        .replace("-TargetedRHIs=SF_VULKAN_SM6\r\n", "")
+        .replace("-TargetedRHIs=SF_VULKAN_SM6\n", "")
+        .replace("-TargetedRHIs=SF_VULKAN_SM6", "");
+
+    if !updated.contains(section_header) {
+        let block = format!(
+            "\n{}\n+TargetedRHIs=SF_VULKAN_SM5\n+TargetedRHIs=SF_VULKAN_SM6\n",
+            section_header
+        );
+        updated.push_str(&block);
+    } else {
+        let has_sm5 = updated.contains("TargetedRHIs=SF_VULKAN_SM5");
+        let has_sm6 = updated.contains("TargetedRHIs=SF_VULKAN_SM6");
+
+        if !has_sm5 && !has_sm6 {
+            updated = updated.replace(
+                section_header,
+                &format!("{}\n+TargetedRHIs=SF_VULKAN_SM5\n+TargetedRHIs=SF_VULKAN_SM6", section_header),
+            );
+        } else if !has_sm5 {
+            updated = updated.replace(
+                section_header,
+                &format!("{}\n+TargetedRHIs=SF_VULKAN_SM5", section_header),
+            );
+        } else if !has_sm6 {
+            updated = updated.replace(
+                section_header,
+                &format!("{}\n+TargetedRHIs=SF_VULKAN_SM6", section_header),
+            );
         }
     }
 
-    std::fs::write(ini_path, content)?;
+    if updated != content {
+        std::fs::write(&ini_path, updated)?;
+    }
+
     Ok(())
 }
 
@@ -999,6 +1033,7 @@ mod tests {
         assert!(config.is_file());
         let config_str = std::fs::read_to_string(config).unwrap();
         assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM5"));
+        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM6"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1029,6 +1064,12 @@ mod tests {
 
         let target = std::path::Path::new(&proj.project_dir).join("Source/TestCppGame.Target.cs");
         assert!(target.is_file());
+
+        let config = std::path::Path::new(&proj.project_dir).join("Config/DefaultEngine.ini");
+        assert!(config.is_file());
+        let config_str = std::fs::read_to_string(config).unwrap();
+        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM5"));
+        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM6"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
