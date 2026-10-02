@@ -4,6 +4,87 @@ const { open: openDialog } = window.__TAURI__.dialog;
 const { openUrl } = window.__TAURI__.opener;
 
 const LINUX_DOWNLOAD_URL = "https://www.unrealengine.com/linux?lang=pt-BR";
+const isWindows = navigator.userAgent.toLowerCase().includes("windows");
+let activeProjectLaunch = null;
+let buildLogPath = "";
+let buildLogLines = [];
+let buildUiFrame = null;
+let buildUiReady = null;
+
+function appendBuildLog(line) {
+  buildLogLines.push(String(line));
+  // Keep the webview responsive; the complete log is preserved on disk.
+  if (buildLogLines.length > 2000) buildLogLines.splice(0, buildLogLines.length - 2000);
+  if (buildUiFrame === null) buildUiFrame = requestAnimationFrame(() => {
+    const log = document.getElementById("project-build-log");
+    log.textContent = buildLogLines.join("\n");
+    log.scrollTop = log.scrollHeight;
+    buildUiFrame = null;
+  });
+}
+
+function setBuildProgress(percent) {
+  const bar = document.getElementById("project-build-progress");
+  if (percent == null) bar.removeAttribute("value");
+  else bar.value = percent;
+}
+
+function initBuildUi() {
+  document.getElementById("btn-close-project-build").addEventListener("click", () => {
+    if (!activeProjectLaunch) document.getElementById("project-build-modal").hidden = true;
+  });
+  document.getElementById("btn-show-build-log").addEventListener("click", async () => {
+    if (!buildLogPath) return;
+    try { await invoke("open_path_in_file_manager", { path: buildLogPath }); }
+    catch (err) { showToast(String(err), true); }
+  });
+  return listen("project-build-progress", ({ payload: p }) => {
+    if (p.uproject_path !== activeProjectLaunch) return;
+    buildLogPath = p.log_path || "";
+    document.getElementById("project-build-log-path").textContent = buildLogPath;
+    document.getElementById("project-build-status").textContent =
+      p.stage === "failed" ? "Falha na compilação" : p.stage === "compiled" ? "Compilação concluída" :
+        (p.percent == null ? "Preparando compilação…" : `Compilando… ${Math.round(p.percent)}% das ações`);
+    setBuildProgress(p.percent);
+    if (p.line) appendBuildLog(p.line);
+  });
+}
+
+async function launchProject(proj, engineId, rhiMode) {
+  if (activeProjectLaunch) { showToast("Aguarde a compilação/abertura atual.", true); return; }
+  activeProjectLaunch = proj.uproject_path;
+  const modal = document.getElementById("project-build-modal");
+  const close = document.getElementById("btn-close-project-build");
+  const showLog = document.getElementById("btn-show-build-log");
+  buildLogPath = "";
+  buildLogLines = [];
+  document.getElementById("project-build-log").textContent = "";
+  document.getElementById("project-build-log-path").textContent = "";
+  document.getElementById("project-build-title").textContent = `Abrindo ${proj.name}`;
+  document.getElementById("project-build-status").textContent = "Verificando projeto e preparando compilação…";
+  close.disabled = true;
+  showLog.disabled = true;
+  setBuildProgress(null);
+  modal.hidden = false;
+  try {
+    // Register the listener before invoking; fast builds must not lose their logs.
+    await buildUiReady;
+    await invoke("launch_project", { uprojectPath: proj.uproject_path, engineId, rhiMode });
+    setBuildProgress(100);
+    document.getElementById("project-build-status").textContent = "Editor iniciado";
+    showToast(`Iniciando ${proj.name}…`);
+    if (!buildLogPath) modal.hidden = true;
+  } catch (err) {
+    document.getElementById("project-build-status").textContent = "Falha ao compilar/abrir o projeto";
+    setBuildProgress(0);
+    appendBuildLog(String(err));
+    showToast("Não foi possível abrir o projeto. Consulte o log.", true);
+  } finally {
+    activeProjectLaunch = null;
+    close.disabled = false;
+    showLog.disabled = !buildLogPath;
+  }
+}
 
 let engines = [];
 let projectDirs = [];
@@ -192,7 +273,7 @@ function renderEngines() {
           </div>
           <div class="engine-status-meta">
             <span>${eng.is_source_build ? "Source" : "Installed"}</span>
-            <span>Linux</span>
+            <span>${isWindows ? "Windows" : "Linux"}</span>
           </div>
           <button class="btn-engine-launch">
             Iniciar Editor ›
@@ -507,8 +588,8 @@ function createModernProjectCard(proj) {
           <option value="">Selecionar Engine…</option>
           ${engineOptions}
         </select>
-        <select class="select-dark rhi-select" title="Compatibilidade Gráfica (OpenGL + SM5/SM6)" style="max-width: 110px;">
-          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>⚡ Auto (OpenGL)</option>
+        <select class="select-dark rhi-select" title="Compatibilidade Gráfica (SM5/SM6)" style="max-width: 110px;">
+          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>⚡ Auto</option>
           <option value="sm5" ${proj.rhi_mode === "sm5" ? "selected" : ""}>🛡️ SM5</option>
           <option value="sm6" ${proj.rhi_mode === "sm6" ? "selected" : ""}>🚀 SM6</option>
         </select>
@@ -566,7 +647,7 @@ function createModernProjectCard(proj) {
       try {
         await invoke("set_project_rhi_mode", { uprojectPath: proj.uproject_path, rhiMode: mode });
         proj.rhi_mode = mode;
-        const label = mode === "auto" ? "Automático (OpenGL)" : `${mode.toUpperCase()} (OpenGL)`;
+        const label = mode === "auto" ? "Automático" : mode.toUpperCase();
         showToast(`RHI do projeto alterado para: ${label}`);
       } catch (err) {
         showToast(String(err), true);
@@ -581,13 +662,7 @@ function createModernProjectCard(proj) {
       return;
     }
     const rhiMode = rhiSelect ? rhiSelect.value : (proj.rhi_mode || "auto");
-    try {
-      await invoke("launch_project", { uprojectPath: proj.uproject_path, engineId, rhiMode });
-      const rhiLabel = rhiMode === "auto" ? "OpenGL" : `${rhiMode.toUpperCase()} (OpenGL)`;
-      showToast(`Iniciando ${proj.name} [${rhiLabel}]…`);
-    } catch (err) {
-      showToast(String(err), true);
-    }
+    await launchProject(proj, engineId, rhiMode);
   });
 
   if (proj.has_source) {
@@ -748,13 +823,13 @@ async function checkGpuCompatibility() {
         banner.hidden = false;
         const title = document.getElementById("gpu-compat-title");
         const desc = document.getElementById("gpu-compat-desc");
-        if (title) title.textContent = "Modo Estável Ativado (OpenGL + SM5/SM6)";
+        if (title) title.textContent = "Compatibilidade gráfica (SM5)";
         if (desc) {
-          desc.innerHTML = `Sua GPU (<strong>${escapeHtml(gpuInfo.name)}</strong>) e ambiente Linux operam com maior estabilidade em <code>-opengl</code> (evita crashes ao fechar janelas dock). SM5 e SM6 estão configurados no projeto sem avisos da engine.`;
+          desc.textContent = gpuInfo.reason || "SM5 recomendado para esta GPU.";
         }
       }
       if (hint) {
-        hint.textContent = "(OpenGL + SM5/SM6 recomendado)";
+        hint.textContent = "(SM5 recomendado)";
       }
       const selectNewRhi = document.getElementById("select-new-proj-rhi");
       if (selectNewRhi) {
@@ -797,7 +872,7 @@ function openCreateProjectModal() {
     selectRhi.value = "auto";
   }
   if (gpuHint) {
-    gpuHint.textContent = "(OpenGL + SM5/SM6 ativado)";
+    gpuHint.textContent = "(SM5 recomendado)";
   }
 
   // Sugere diretório padrão
@@ -2397,18 +2472,26 @@ document.getElementById("btn-view-github-release")?.addEventListener("click", ()
 
 // ---------- Boot ----------
 (async function init() {
+  buildUiReady = initBuildUi();
+  await buildUiReady;
+  if (isWindows) {
+    document.querySelectorAll(".modal-subtitle").forEach((el) => {
+      if (el.textContent.includes("Compilações oficiais da Epic Games para Linux")) el.textContent = "Instale a engine pelo Epic Games Launcher e registre sua pasta aqui.";
+    });
+    const choice = document.querySelector("#choice-download-epic small");
+    if (choice) choice.textContent = "Instalação oficial pelo Epic Games Launcher";
+  }
   // Garante que o widget ativo começa estritamente oculto se não houver download em andamento
   const topActive = document.getElementById("top-download-active");
   const topBtn = document.getElementById("btn-open-epic-downloader");
   if (topActive) topActive.hidden = true;
   if (topBtn) topBtn.hidden = false;
 
-  await refreshEpicStatus();
-  await checkGpuCompatibility();
-  await refreshDetectedIdes();
-  await refreshEngines();
-  await refreshProjectDirs();
+  // Projects remain accessible while Epic authentication/network requests run.
+  const accountAndGpu = Promise.allSettled([refreshEpicStatus(), checkGpuCompatibility()]);
+  await Promise.all([refreshDetectedIdes(), refreshEngines(), refreshProjectDirs()]);
   await refreshProjects();
+  await accountAndGpu;
 
   // Pré-carrega o cache do Vault em segundo plano para resposta instantânea ao abrir a aba
   refreshVault(false).catch((err) => console.warn("Pré-carregamento da biblioteca em background:", err));

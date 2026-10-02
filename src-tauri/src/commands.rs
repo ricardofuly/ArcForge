@@ -6,6 +6,12 @@ fn to_err(e: anyhow::Error) -> String {
     e.to_string()
 }
 
+fn same_engine_path(a: &str, b: &str) -> bool {
+    if cfg!(target_os = "windows") {
+        a.trim_end_matches(['/', '\\']).replace('/', "\\").eq_ignore_ascii_case(&b.trim_end_matches(['/', '\\']).replace('/', "\\"))
+    } else { a == b }
+}
+
 #[tauri::command]
 pub async fn epic_status() -> epic::EpicStatus {
     epic::status().await
@@ -94,6 +100,7 @@ pub async fn epic_download_and_install(
 
     let install = engine::detect_engine(&engine_root.to_string_lossy(), false).map_err(to_err)?;
     let mut cfg = state.config.lock().unwrap();
+    cfg.excluded_engine_paths.retain(|p| !same_engine_path(p, &install.path));
     cfg.engines.push(install.clone());
     cfg.save().map_err(to_err)?;
     let _ = engine::sync_install_ini(&cfg.engines);
@@ -106,13 +113,18 @@ pub fn list_engines(state: State<AppState>) -> Vec<EngineInstall> {
     let mut cfg = state.config.lock().unwrap();
     #[cfg(target_os = "windows")]
     {
-        if cfg.engines.is_empty() {
-            let auto = engine::auto_detect_installed_engines();
-            if !auto.is_empty() {
-                cfg.engines.extend(auto);
-                let _ = cfg.save();
-                let _ = engine::sync_install_ini(&cfg.engines);
+        let auto = engine::auto_detect_installed_engines();
+        let mut changed = false;
+        for install in auto {
+            if !cfg.engines.iter().any(|e| same_engine_path(&e.path, &install.path))
+                && !cfg.excluded_engine_paths.iter().any(|p| same_engine_path(p, &install.path)) {
+                cfg.engines.push(install);
+                changed = true;
             }
+        }
+        if changed {
+            let _ = cfg.save();
+            let _ = engine::sync_install_ini(&cfg.engines);
         }
     }
     cfg.engines.clone()
@@ -132,6 +144,7 @@ pub async fn add_engine_from_folder(
     .map_err(to_err)?;
 
     let mut cfg = state.config.lock().unwrap();
+    cfg.excluded_engine_paths.retain(|p| !same_engine_path(p, &install.path));
     cfg.engines.push(install.clone());
     cfg.save().map_err(to_err)?;
     let _ = engine::sync_install_ini(&cfg.engines);
@@ -141,6 +154,11 @@ pub async fn add_engine_from_folder(
 #[tauri::command]
 pub fn remove_engine(state: State<AppState>, id: String) -> Result<(), String> {
     let mut cfg = state.config.lock().unwrap();
+    if let Some(engine) = cfg.engines.iter().find(|e| e.id == id).cloned() {
+        if !cfg.excluded_engine_paths.iter().any(|p| same_engine_path(p, &engine.path)) {
+            cfg.excluded_engine_paths.push(engine.path);
+        }
+    }
     cfg.engines.retain(|e| e.id != id);
     cfg.save().map_err(to_err)?;
     let _ = engine::sync_install_ini(&cfg.engines);
@@ -164,6 +182,7 @@ pub async fn extract_engine_zip(
 
     let install = engine::detect_engine(&engine_root.to_string_lossy(), false).map_err(to_err)?;
     let mut cfg = state.config.lock().unwrap();
+    cfg.excluded_engine_paths.retain(|p| !same_engine_path(p, &install.path));
     cfg.engines.push(install.clone());
     cfg.save().map_err(to_err)?;
     let _ = engine::sync_install_ini(&cfg.engines);
@@ -388,38 +407,6 @@ pub fn open_project_in_ide(
         let cfg = state.config.lock().unwrap();
         let _ = crate::engine::sync_install_ini(&cfg.engines);
 
-        // Se houver um .uproject na pasta, garante que EngineAssociation esteja correto
-        let dir = std::path::Path::new(&project_dir);
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("uproject") {
-                    if let Ok(raw) = std::fs::read_to_string(&p) {
-                        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&raw) {
-                            let current_assoc = json["EngineAssociation"].as_str().unwrap_or_default();
-                            let matched = cfg.engines.iter().find(|e| {
-                                e.id == current_assoc
-                                    || crate::engine::short_version(&e.version) == current_assoc
-                                    || e.version == current_assoc
-                            });
-
-                            if let Some(engine) = matched {
-                                let canonical = crate::engine::short_version(&engine.version);
-                                if current_assoc != canonical {
-                                    json["EngineAssociation"] = serde_json::Value::String(canonical);
-                                    let _ = std::fs::write(&p, serde_json::to_string_pretty(&json).unwrap_or_default());
-                                }
-                            } else if let Some(first_engine) = cfg.engines.first() {
-                                let canonical = crate::engine::short_version(&first_engine.version);
-                                json["EngineAssociation"] = serde_json::Value::String(canonical);
-                                let _ = std::fs::write(&p, serde_json::to_string_pretty(&json).unwrap_or_default());
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-        }
     }
 
     let ide = project::Ide::from_str(&ide).map_err(to_err)?;
@@ -432,12 +419,14 @@ pub fn get_available_ides() -> Result<Vec<project::IdeInfo>, String> {
 }
 
 #[tauri::command]
-pub fn launch_project(
-    state: State<AppState>,
+pub async fn launch_project(
+    window: Window,
+    state: State<'_, AppState>,
     uproject_path: String,
     engine_id: String,
     rhi_mode: Option<String>,
 ) -> Result<(), String> {
+    let guard = crate::build::LaunchGuard::acquire().map_err(to_err)?;
     let (engine, resolved_rhi) = {
         let cfg = state.config.lock().unwrap();
         let engine = cfg
@@ -460,7 +449,14 @@ pub fn launch_project(
         (engine, rhi)
     };
 
-    project::launch_project(&uproject_path, &engine, Some(&resolved_rhi)).map_err(to_err)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        crate::build::compile(&window, &uproject_path, &engine)?;
+        project::launch_project(&uproject_path, &engine, Some(&resolved_rhi))
+    })
+    .await
+    .map_err(|e| format!("Erro interno ao compilar/abrir projeto: {e}"))?
+    .map_err(to_err)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

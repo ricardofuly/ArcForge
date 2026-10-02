@@ -132,7 +132,7 @@
             <div class="section-header">
               <div class="section-title-wrap">
                 <h2>Instalações da Engine</h2>
-                <p>Versões prontas para uso no seu sistema Linux.</p>
+                <p>Versões prontas para uso no seu sistema.</p>
               </div>
               <div style="display: flex; gap: 8px;">
                 <button class="btn btn-ghost btn-small" id="btn-add-engine">+ Registrar pasta</button>
@@ -772,6 +772,20 @@
     </div>
   </div>
 
+  <div id="project-build-modal" class="modal-overlay" hidden>
+    <div class="modal project-build-dialog" role="dialog" aria-modal="true" aria-labelledby="project-build-title">
+      <h2 id="project-build-title">Compilação do projeto</h2>
+      <p id="project-build-status" role="status" aria-live="polite"></p>
+      <progress id="project-build-progress" max="100" aria-label="Progresso da compilação"></progress>
+      <p class="modal-subtitle">O projeto C++ é compilado antes de abrir o editor. Aguarde a conclusão.</p>
+      <pre id="project-build-log" tabindex="0" aria-label="Log da compilação"></pre>
+      <p id="project-build-log-path"></p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-show-build-log" disabled>Mostrar arquivo de log</button>
+        <button class="btn btn-primary" id="btn-close-project-build" disabled>Fechar</button>
+      </div>
+    </div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
   <script type="module" src="main.js"></script>

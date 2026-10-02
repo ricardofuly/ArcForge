@@ -10,13 +10,32 @@ pub struct GpuInfo {
 }
 
 pub fn detect_gpu_info() -> GpuInfo {
+    static GPU: std::sync::OnceLock<GpuInfo> = std::sync::OnceLock::new();
+    GPU.get_or_init(detect_gpu_info_uncached).clone()
+}
+
+fn detect_gpu_info_uncached() -> GpuInfo {
+    #[cfg(target_os = "windows")]
+    let lspci_output = {
+        use std::os::windows::process::CommandExt;
+        Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }"])
+            .creation_flags(0x08000000)
+            .output().ok().filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).to_string()).unwrap_or_default()
+    };
+    #[cfg(not(target_os = "windows"))]
     let lspci_output = Command::new("lspci")
         .output()
         .ok()
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .unwrap_or_default();
 
+    #[cfg(target_os = "windows")]
+    let gpu_line = lspci_output.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+    #[cfg(not(target_os = "windows"))]
     let mut gpu_line = String::new();
+    #[cfg(not(target_os = "windows"))]
     for line in lspci_output.lines() {
         let upper = line.to_uppercase();
         if upper.contains("VGA COMPATIBLE") || upper.contains("3D CONTROLLER") {
@@ -25,6 +44,7 @@ pub fn detect_gpu_info() -> GpuInfo {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     if gpu_line.is_empty() {
         if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
             for entry in entries.flatten() {
@@ -109,7 +129,12 @@ pub fn detect_gpu_info() -> GpuInfo {
         (false, None)
     };
 
-    let display_name = if !gpu_line.is_empty() && gpu_line.contains("controller:") {
+    #[cfg(target_os = "windows")]
+    let reason = reason.map(|_| "SM5 recomendado para compatibilidade com esta GPU no Windows.".to_string());
+
+    let display_name = if cfg!(target_os = "windows") && !gpu_line.is_empty() {
+        gpu_line.clone()
+    } else if !gpu_line.is_empty() && gpu_line.contains("controller:") {
         gpu_line
             .split("controller:")
             .nth(1)

@@ -73,7 +73,7 @@ pub fn scan_directory_for_projects(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "Sem nome".to_string());
 
-            let has_source = project_dir.join("Source").is_dir();
+            let has_source = crate::build::needs_build(path).unwrap_or(false);
 
             let engine_association = std::fs::read_to_string(path)
                 .ok()
@@ -84,7 +84,7 @@ pub fn scan_directory_for_projects(
                 engines.iter().find(|e| {
                     crate::engine::short_version(&e.version) == *assoc
                         || &e.version == assoc
-                        || e.id == *assoc
+                        || e.id.trim_matches(['{', '}']).eq_ignore_ascii_case(assoc.trim_matches(['{', '}']))
                 }).map(|e| e.id.clone())
             });
 
@@ -132,12 +132,14 @@ pub fn launch_project(
     }
 
     // Antes de iniciar, garante que o DefaultEngine.ini do projeto possui SM5 e SM6 devidamente configurados
+    #[cfg(target_os = "linux")]
     if let Some(project_dir) = uproject.parent() {
         let _ = ensure_project_target_rhis(project_dir);
     }
 
     let mut cmd = Command::new(editor);
     cmd.arg(uproject);
+    if let Some(dir) = uproject.parent() { cmd.current_dir(dir); }
 
     // No Linux, força o Unreal Editor a abrir com OpenGL para evitar crash ao fechar janelas dock no Vulkan
     #[cfg(target_os = "linux")]
@@ -229,9 +231,9 @@ impl Ide {
             Ide::VsCode => {
                 // 1. Binário nativo no PATH
                 for bin in ["code", "code.cmd", "code.exe", "codium", "code-oss"] {
-                    if check_command_in_path(bin) {
+                    if let Some(program) = resolve_command_in_path(bin) {
                         return Some(IdeLaunchCommand {
-                            program: bin.to_string(),
+                            program,
                             args: Vec::new(),
                             runner_name: "Nativo".to_string(),
                         });
@@ -297,9 +299,9 @@ impl Ide {
             Ide::Rider => {
                 // 1. Binário nativo no PATH
                 for bin in ["rider", "rider.sh", "rider64.exe", "rider.exe"] {
-                    if check_command_in_path(bin) {
+                    if let Some(program) = resolve_command_in_path(bin) {
                         return Some(IdeLaunchCommand {
-                            program: bin.to_string(),
+                            program,
                             args: Vec::new(),
                             runner_name: "Nativo".to_string(),
                         });
@@ -371,9 +373,9 @@ impl Ide {
             Ide::CLion => {
                 // 1. Binário nativo no PATH
                 for bin in ["clion", "clion.sh", "clion64.exe", "clion.exe"] {
-                    if check_command_in_path(bin) {
+                    if let Some(program) = resolve_command_in_path(bin) {
                         return Some(IdeLaunchCommand {
-                            program: bin.to_string(),
+                            program,
                             args: Vec::new(),
                             runner_name: "Nativo".to_string(),
                         });
@@ -443,11 +445,15 @@ impl Ide {
                 }
             }
             Ide::VisualStudio => {
+                #[cfg(target_os = "windows")]
+                if let Some(program) = detect_visual_studio() {
+                    return Some(IdeLaunchCommand { program, args: Vec::new(), runner_name: "Windows".into() });
+                }
                 // 1. Binário no PATH
                 for bin in ["devenv", "devenv.exe", "devenv.com"] {
-                    if check_command_in_path(bin) {
+                    if let Some(program) = resolve_command_in_path(bin) {
                         return Some(IdeLaunchCommand {
-                            program: bin.to_string(),
+                            program,
                             args: Vec::new(),
                             runner_name: "Nativo".to_string(),
                         });
@@ -480,24 +486,42 @@ impl Ide {
 }
 
 fn check_command_in_path(cmd: &str) -> bool {
+    resolve_command_in_path(cmd).is_some()
+}
+
+fn resolve_command_in_path(cmd: &str) -> Option<String> {
     if cmd.contains('/') || cmd.contains('\\') {
-        return Path::new(cmd).is_file();
+        return Path::new(cmd).is_file().then(|| cmd.to_string());
     }
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let full = dir.join(cmd);
             if full.is_file() {
-                return true;
+                return Some(full.to_string_lossy().to_string());
             }
             #[cfg(target_os = "windows")]
             {
-                if dir.join(format!("{}.exe", cmd)).is_file() || dir.join(format!("{}.cmd", cmd)).is_file() {
-                    return true;
+                for ext in ["exe", "cmd", "bat"] {
+                    let full = dir.join(format!("{cmd}.{ext}"));
+                    if full.is_file() { return Some(full.to_string_lossy().to_string()); }
                 }
             }
         }
     }
-    false
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn detect_visual_studio() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    let program_files = std::env::var_os("ProgramFiles(x86)")?;
+    let vswhere = Path::new(&program_files).join("Microsoft Visual Studio/Installer/vswhere.exe");
+    let output = Command::new(vswhere)
+        .args(["-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.CoreEditor", "-property", "installationPath", "-utf8"])
+        .creation_flags(0x08000000).output().ok()?;
+    let install = String::from_utf8(output.stdout).ok()?;
+    let exe = Path::new(install.trim()).join("Common7/IDE/devenv.exe");
+    exe.is_file().then(|| exe.to_string_lossy().to_string())
 }
 
 fn is_flatpak_app_installed(app_id: &str) -> bool {
@@ -637,7 +661,11 @@ pub fn create_unreal_project(
     std::fs::create_dir_all(&project_dir)
         .with_context(|| format!("não foi possível criar a pasta do projeto {:?}", project_dir))?;
 
-    let engine_assoc = crate::engine::short_version(&engine.version);
+    let engine_assoc = if engine.is_source_build {
+        engine.id.clone()
+    } else {
+        crate::engine::short_version(&engine.version)
+    };
 
     let template_folder_name = match (template_key, is_cpp) {
         ("third_person", true) => "TP_ThirdPerson",
@@ -663,6 +691,7 @@ pub fn create_unreal_project(
     }
 
     // Garante que o Config/DefaultEngine.ini possui SM5 ativado e SM6 marcado para evitar erros e avisos
+    #[cfg(target_os = "linux")]
     let _ = ensure_project_target_rhis(&project_dir);
 
     let uproject_path = project_dir.join(format!("{}.uproject", name));
@@ -1032,8 +1061,8 @@ mod tests {
         let config = std::path::Path::new(&proj.project_dir).join("Config/DefaultEngine.ini");
         assert!(config.is_file());
         let config_str = std::fs::read_to_string(config).unwrap();
-        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM5"));
-        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM6"));
+        assert_eq!(config_str.contains("TargetedRHIs=SF_VULKAN_SM5"), cfg!(target_os = "linux"));
+        assert_eq!(config_str.contains("TargetedRHIs=SF_VULKAN_SM6"), cfg!(target_os = "linux"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1068,8 +1097,8 @@ mod tests {
         let config = std::path::Path::new(&proj.project_dir).join("Config/DefaultEngine.ini");
         assert!(config.is_file());
         let config_str = std::fs::read_to_string(config).unwrap();
-        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM5"));
-        assert!(config_str.contains("TargetedRHIs=SF_VULKAN_SM6"));
+        assert_eq!(config_str.contains("TargetedRHIs=SF_VULKAN_SM5"), cfg!(target_os = "linux"));
+        assert_eq!(config_str.contains("TargetedRHIs=SF_VULKAN_SM6"), cfg!(target_os = "linux"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

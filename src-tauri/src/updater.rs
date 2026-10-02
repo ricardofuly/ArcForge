@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
@@ -53,32 +55,10 @@ struct GithubAsset {
 /// Compara duas versões em formato SemVer (ex: "0.1.0" e "v0.1.1").
 /// Retorna `true` se `remote` for estritamente mais recente que `local`.
 pub fn is_newer_version(local: &str, remote: &str) -> bool {
-    let parse = |v: &str| -> Vec<u64> {
-        v.trim_start_matches('v')
-            .split('.')
-            .filter_map(|part| {
-                // Remove qualquer sufixo como -beta, -rc1
-                let num_str = part.split('-').next().unwrap_or(part);
-                num_str.parse::<u64>().ok()
-            })
-            .collect()
-    };
-
-    let l = parse(local);
-    let r = parse(remote);
-
-    // Compara elemento por elemento
-    let max_len = l.len().max(r.len());
-    for i in 0..max_len {
-        let l_val = l.get(i).copied().unwrap_or(0);
-        let r_val = r.get(i).copied().unwrap_or(0);
-        if r_val > l_val {
-            return true;
-        } else if r_val < l_val {
-            return false;
-        }
+    match (semver::Version::parse(local.trim_start_matches('v')), semver::Version::parse(remote.trim_start_matches('v'))) {
+        (Ok(local), Ok(remote)) => remote.cmp_precedence(&local).is_gt(),
+        _ => false,
     }
-    false
 }
 
 /// Seleciona o asset apropriado da release com base no sistema operacional
@@ -463,7 +443,11 @@ mod tests {
         assert!(is_newer_version("0.1.0", "v0.1.1"));
         assert!(is_newer_version("0.1.0", "0.2.0"));
         assert!(is_newer_version("0.1.0", "1.0.0"));
-        assert!(is_newer_version("0.1.0", "v0.1.0-1"));
+        assert!(!is_newer_version("0.1.0", "v0.1.0-1"));
+        assert!(!is_newer_version("0.1.0", "0.1.0-beta"));
+        assert!(is_newer_version("0.1.0-beta", "0.1.0"));
+        assert!(!is_newer_version("0.1.0", "0.1.0+build.2"));
+        assert!(!is_newer_version("0.1.0", "invalid"));
         assert!(!is_newer_version("0.1.0", "0.1.0"));
         assert!(!is_newer_version("0.1.0", "v0.1.0"));
         assert!(!is_newer_version("0.2.0", "0.1.9"));

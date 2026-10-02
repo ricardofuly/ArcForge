@@ -1,5 +1,66 @@
 # ArcForge - Unreal Launcher
 
+## Windows: projetos C++ sem abrir a IDE
+
+Ao clicar em **Abrir**, o launcher verifica o `.uproject` e compila projetos com
+`Source/`, módulos C++ ou plugins locais com código. Usa o `Build.bat` da engine
+selecionada, target **Editor**, plataforma **Win64** e configuração **Development**.
+O UnrealBuildTool verifica as alterações a cada abertura e recompila o necessário;
+se tudo estiver atualizado, apenas confirma o build. Não é feita uma recompilação
+limpa de todos os arquivos a cada clique.
+
+O modal exibe stdout e stderr em tempo real, uma barra indeterminada durante a
+preparação e o progresso das ações quando informado pelo UBT. O editor só abre após
+sucesso. Em caso de erro, o modal permanece aberto e o log completo fica salvo em
+`<projeto>/Saved/Logs/LauncherBuild-<id>.log`. **Mostrar arquivo de log** abre a pasta
+contendo o arquivo. A tela mantém as últimas 2.000 linhas para evitar lentidão.
+Uma única abertura/compilação pode executar por vez. Projetos Blueprint sem código
+abrem diretamente. Feche o editor antes de compilar para evitar conflitos com Live Coding.
+
+Pré-requisitos nas máquinas dos artistas:
+
+- Engine instalada pelo Epic Games Launcher ou uma instalação local já compilada.
+- Ferramentas MSVC C++ e Windows SDK compatíveis com a versão da Unreal instalada
+  (Visual Studio ou Build Tools com os componentes C++ necessários). A IDE não
+  precisa estar aberta; o launcher não instala o compilador nem o SDK automaticamente.
+- WebView2 Runtime para executar o launcher Tauri.
+
+As engines oficiais são detectadas pelo `LauncherInstalled.dat` e pelas pastas
+usuais da Epic Games. Instalações em outras pastas podem ser registradas manualmente.
+Downloads das builds Linux continuam sendo um fluxo exclusivo do Linux; no Windows,
+instale a engine pelo Epic Games Launcher e registre sua pasta neste launcher.
+
+Targets com nomes próprios são identificados pelo `.Target.cs` que define
+`Type = TargetType.Editor`. Se houver mais de um, o launcher informa a ambiguidade
+em vez de escolher arbitrariamente. Caminhos com espaços e acentos são suportados;
+operadores do shell e caracteres de expansão como `%`, `!` e `&` são rejeitados
+para evitar interpretação incorreta pelo `Build.bat`.
+
+### Desenvolvimento e instalador no Windows
+
+Instale Rust (toolchain MSVC), Node.js e os componentes C++ do Visual Studio/Build Tools.
+Na raiz do repositório:
+
+```powershell
+npm install
+npm run tauri dev
+npm run tauri build -- --bundles nsis,msi
+```
+
+Os instaladores ficam em `src-tauri/target/release/bundle/nsis` e `msi`.
+
+Validação:
+
+```powershell
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+node --test tests/frontend-build.test.cjs
+# Teste opcional com engine instalada: compila um módulo e provoca um erro controlado.
+$env:UNREAL_TEST_ENGINE = 'C:/Program Files/Epic Games/UE_5.8'
+cargo test --manifest-path src-tauri/Cargo.toml real_unreal_editor_build -- --ignored --nocapture
+```
+
+## Funcionalidades e desenvolvimento no Linux
+
 Launcher não-oficial pra gerenciar instalações da Unreal Engine.
 
 ## O que ele faz (v1)

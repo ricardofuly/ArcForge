@@ -20,18 +20,13 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https: asset: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self' https: ipc: http://127.0.0.1:*;"
+      "csp": "default-src 'self'; img-src 'self' data: https: asset: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self' https: ipc: http://ipc.localhost http://127.0.0.1:*;"
     }
 
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb",
-      "appimage",
-      "nsis",
-      "msi"
-    ],
+    "targets": "all",
     "shortDescription": "Launcher para gerenciar instalações da Unreal Engine e projetos no Linux e Windows",
     "longDescription": "Launcher nativo e leve para gerenciar instalações da Unreal Engine, projetos C++/Blueprint, dependências e assets no Linux e Windows.",
     "publisher": "Ricardo Fuly",
