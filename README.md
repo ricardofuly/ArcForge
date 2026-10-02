@@ -1,7 +1,6 @@
-# Unreal Launcher (Linux)
+# ArcForge - Unreal Launcher
 
-Launcher não-oficial pra gerenciar instalações da Unreal Engine e projetos no Linux,
-já que a Epic não distribui um launcher nativo pra essa plataforma.
+Launcher não-oficial pra gerenciar instalações da Unreal Engine.
 
 ## O que ele faz (v1)
 
