@@ -4,10 +4,12 @@
 mod build;
 mod commands;
 mod config;
+mod credentials;
 mod engine;
 mod epic;
 mod hardware;
 mod project;
+mod security;
 mod updater;
 mod vault;
 

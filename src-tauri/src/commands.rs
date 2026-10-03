@@ -245,13 +245,13 @@ pub fn remove_project(state: State<AppState>, uproject_path: String) -> Result<(
 
 #[tauri::command]
 pub fn delete_project_from_disk(state: State<AppState>, uproject_path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&uproject_path);
-    if !p.exists() {
-        return Err("o arquivo .uproject não foi encontrado no caminho especificado".to_string());
+    let dirs = state.config.lock().unwrap().project_dirs.clone();
+    let project = crate::security::monitored_project(std::path::Path::new(&uproject_path), &dirs).map_err(to_err)?;
+    let p = project.as_path();
+    let canonical_proj = p.parent().ok_or("Projeto sem pasta")?.to_path_buf();
+    if dirs.iter().filter_map(|d| std::path::Path::new(d).canonicalize().ok()).any(|d| d == canonical_proj) {
+        return Err("Não é permitido excluir uma pasta monitorada inteira".into());
     }
-
-    let project_dir = p.parent().ok_or_else(|| "diretório do projeto inválido".to_string())?;
-    let canonical_proj = project_dir.canonicalize().map_err(|e| format!("caminho inválido: {e}"))?;
 
     // Verificações de segurança estritas para impedir remoção acidental de diretórios críticos
     let root = std::path::Path::new("/");
@@ -287,7 +287,7 @@ pub fn delete_project_from_disk(state: State<AppState>, uproject_path: String) -
     }
 
     // Exclui a pasta do projeto do disco
-    std::fs::remove_dir_all(&canonical_proj)
+    trash::delete(&canonical_proj)
         .map_err(|e| format!("falha ao excluir pasta do projeto: {e}"))?;
 
     // Registra como excluído para atualizar a lista
@@ -345,9 +345,10 @@ pub async fn create_project(
 }
 
 #[tauri::command]
-pub async fn read_project_thumbnail(path: String) -> Result<String, String> {
+pub async fn read_project_thumbnail(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    let dirs = state.config.lock().unwrap().project_dirs.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = std::fs::read(&path).map_err(|e| format!("não consegui ler a thumbnail: {e}"))?;
+        let bytes = crate::security::thumbnail(std::path::Path::new(&path), &dirs).map_err(to_err)?;
         let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
         Ok(format!("data:image/png;base64,{encoded}"))
     })
@@ -402,6 +403,13 @@ pub fn open_project_in_ide(
     project_dir: String,
     ide: String,
 ) -> Result<(), String> {
+    let dirs = state.config.lock().unwrap().project_dirs.clone();
+    let root = std::path::Path::new(&project_dir);
+    crate::security::reject_links(root).map_err(to_err)?;
+    if !root.read_dir().map_err(|_| "Pasta de projeto inválida")?.filter_map(|e| e.ok())
+        .any(|e| crate::security::monitored_project(&e.path(), &dirs).is_ok()) {
+        return Err("Projeto fora das pastas monitoradas".into());
+    }
     // 1. Sincroniza Install.ini tanto no host quanto nos diretórios de sandboxes Flatpak
     {
         let cfg = state.config.lock().unwrap();
@@ -426,6 +434,9 @@ pub async fn launch_project(
     engine_id: String,
     rhi_mode: Option<String>,
 ) -> Result<(), String> {
+    let dirs = state.config.lock().unwrap().project_dirs.clone();
+    crate::security::monitored_project(std::path::Path::new(&uproject_path), &dirs).map_err(to_err)?;
+    // Preserve the UI path for progress-event correlation and RHI preferences.
     let guard = crate::build::LaunchGuard::acquire().map_err(to_err)?;
     let (engine, resolved_rhi) = {
         let cfg = state.config.lock().unwrap();
@@ -483,7 +494,9 @@ pub fn set_project_rhi_mode(
     uproject_path: String,
     rhi_mode: String,
 ) -> Result<(), String> {
+    if !matches!(rhi_mode.as_str(), "auto" | "sm5" | "sm6") { return Err("Modo RHI inválido".into()); }
     let mut cfg = state.config.lock().unwrap();
+    let checked = crate::security::monitored_project(std::path::Path::new(&uproject_path), &cfg.project_dirs).map_err(to_err)?;
     if rhi_mode == "auto" {
         cfg.project_rhi_overrides.remove(&uproject_path);
     } else {
@@ -492,7 +505,7 @@ pub fn set_project_rhi_mode(
     cfg.save().map_err(to_err)?;
 
     // Sincroniza o DefaultEngine.ini do projeto
-    if let Some(parent) = std::path::Path::new(&uproject_path).parent() {
+    if let Some(parent) = checked.parent() {
         let _ = project::ensure_project_target_rhis(parent);
     }
 
@@ -529,12 +542,14 @@ pub fn epic_cancel_download() {
 
 #[tauri::command]
 pub fn open_path_in_file_manager(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
+    let canonical = std::path::Path::new(&path).canonicalize().map_err(|_| "Caminho local não encontrado")?;
+    let p = canonical.as_path();
     let target = if p.is_file() {
         p.parent().unwrap_or(p)
     } else {
         p
     };
+    if !target.is_dir() { return Err("Selecione uma pasta local".into()); }
     open::that(target).map_err(|e| format!("falha ao abrir gerenciador de arquivos: {e}"))?;
     Ok(())
 }
@@ -550,11 +565,13 @@ pub async fn list_vault_items(force_refresh: Option<bool>) -> Result<Vec<crate::
 #[tauri::command]
 pub async fn install_vault_to_project(
     window: Window,
+    state: State<'_ , AppState>,
     catalog_item_id: String,
     app_id: String,
     uproject_path: String,
 ) -> Result<String, String> {
-    let path = std::path::PathBuf::from(uproject_path);
+    let dirs = state.config.lock().unwrap().project_dirs.clone();
+    let path = crate::security::monitored_project(std::path::Path::new(&uproject_path), &dirs).map_err(to_err)?;
     let target = crate::vault::VaultInstallTarget::Project { uproject_path: path };
     let res = crate::vault::download_and_install_vault_item(&window, &catalog_item_id, &app_id, target)
         .await
@@ -609,6 +626,8 @@ pub async fn create_project_from_vault(
         (assoc, cfg.engines.clone())
     };
 
+    crate::security::project_name(&project_name).map_err(to_err)?;
+    crate::security::reject_links(std::path::Path::new(&parent_dir)).map_err(to_err)?;
     let parent_path = std::path::PathBuf::from(&parent_dir);
     let target = crate::vault::VaultInstallTarget::NewProject {
         project_name: project_name.clone(),

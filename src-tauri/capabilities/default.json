@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões padrão da janela principal",
-  "windows": ["main"],
+  "description": "Permiss\u00c3\u00b5es padr\u00c3\u00a3o da janela principal",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -17,7 +19,12 @@
     "opener:allow-open-url",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "com.epicgames.launcher://apps/ue" }]
-    }
+      "allow": [
+        {
+          "url": "com.epicgames.launcher://apps/ue"
+        }
+      ]
+    },
+    "arcforge-main"
   ]
 }

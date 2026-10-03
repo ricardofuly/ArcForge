@@ -336,6 +336,7 @@ fn count_zip_entries(zip_path: &str) -> Result<usize> {
 /// Extrai um zip de engine pré-compilada emitindo eventos de progresso para a janela.
 pub fn extract_engine_zip(window: &Window, zip_path: &str, dest_dir: &str) -> Result<PathBuf> {
     let dest = PathBuf::from(dest_dir);
+    crate::security::reject_links(&dest)?;
     std::fs::create_dir_all(&dest)?;
 
     #[cfg(target_os = "windows")]
@@ -491,37 +492,38 @@ pub async fn download_and_extract_engine(
     use std::time::Instant;
 
     let dest = PathBuf::from(dest_dir);
+    crate::security::reject_links(&dest)?;
     std::fs::create_dir_all(&dest)?;
 
-    let temp_zip_path = dest.join(format!("{}.download", &blob.name));
-    let final_zip_path = dest.join(&blob.name);
+    crate::security::file_name(&blob.name)?;
+    crate::security::reject_links(&dest)?;
+    let download_dir = tempfile::Builder::new().prefix(".arcforge-download-").tempdir_in(&dest)?;
+    let temp_zip_path = download_dir.path().join("engine.download");
+    let final_zip_path = download_dir.path().join("engine.zip");
 
     if !crate::epic::is_valid_engine_download_url(&blob.url) {
         return Err(anyhow!(
             "a URL obtida para o download não é um link válido para o arquivo .zip da engine: '{}'",
-            &blob.url
+            "download oficial"
         ));
     }
 
-    println!("[DOWNLOAD ENGINE] Iniciando transferência: {} -> {}", &blob.name, &blob.url);
+    println!("[DOWNLOAD ENGINE] Iniciando transferência: {}", &blob.name);
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-        .timeout(std::time::Duration::from_secs(60 * 60 * 6)) // até 6h de timeout para conexões lentas
-        .build()?;
+    let client = crate::security::engine_http_client()?;
 
     let response = client
         .get(&blob.url)
         .send()
         .await
-        .context(format!("falha ao conectar na URL de download da Unreal Engine ({})", &blob.url))?;
+        .map_err(|_| anyhow!("Falha ao conectar ao servidor oficial de download"))?;
 
     if !response.status().is_success() {
         return Err(anyhow!(
             "o servidor da Epic/AWS retornou erro HTTP {} ({}) ao acessar '{}'",
             response.status(),
             response.status().canonical_reason().unwrap_or("erro"),
-            &blob.url
+            "download oficial"
         ));
     }
 

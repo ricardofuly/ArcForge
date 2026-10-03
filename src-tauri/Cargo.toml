@@ -23,10 +23,19 @@ anyhow = "1"
 thiserror = "1"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies", "stream"] }
-tokio = { version = "1", features = ["fs", "io-util"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync"] }
 futures-util = "0.3"
 egs-api = "0.14"
 open = "5"
+tempfile = "3"
+trash = "5"
+minisign-verify = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [profile.release]
 panic = "abort"
