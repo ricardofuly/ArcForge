@@ -1,0 +1,27 @@
+name: Publish existing signed release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sign-and-publish:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      ARCFORGE_UPDATE_PUBLIC_KEY: ${{ vars.ARCFORGE_UPDATE_PUBLIC_KEY }}
+      ARCFORGE_SIGNING_KEY_BASE64: ${{ secrets.ARCFORGE_SIGNING_KEY_BASE64 }}
+      ARCFORGE_SIGNING_PASSWORD: ${{ secrets.ARCFORGE_SIGNING_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require signing configuration
+        shell: bash
+        run: |
+          test -n "$ARCFORGE_UPDATE_PUBLIC_KEY"
+          test -n "$ARCFORGE_SIGNING_KEY_BASE64"
+      - name: Install pinned official Minisign
+        run: bash scripts/install-minisign.sh
+      - name: Sign and verify existing packages before publication
+        run: python3 scripts/sign-release.py

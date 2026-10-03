@@ -105,7 +105,7 @@ jobs:
           fi
       - name: Install Minisign
         if: steps.signing.outputs.ready == 'true'
-        run: sudo apt-get update && sudo apt-get install -y minisign
+        run: bash scripts/install-minisign.sh
       - name: Sign and verify every release package before publishing
         if: steps.signing.outputs.ready == 'true'
         shell: bash

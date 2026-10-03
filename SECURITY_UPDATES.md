@@ -33,3 +33,6 @@ Não há garantia de segurança para projetos/plugins Unreal não confiáveis: o
 
 A chave pública de verificação está em `arcforge.pub` e na variável do GitHub Actions. A chave privada está cadastrada como secret do repositório por autorização do responsável. A cópia local foi protegida com DPAPI em `%USERPROFILE%\.minisign\arcforge.key.dpapi`; ela depende desta conta Windows e precisa de backup seguro antes de reinstalar ou trocar o computador. Não publique esse arquivo nem a chave privada.
 
+
+Se os builds terminarem e a etapa de assinatura falhar, o workflow manual `Publish existing signed release` permite verificar e assinar os assets já gerados, sem repetir os builds. Execute-o em um ref cuja versão de `Cargo.toml` corresponda à release em rascunho, depois de conferir o sucesso dos builds. O instalador do Minisign usa a distribuição oficial 0.12 com SHA-256 fixado, sem depender da disponibilidade de pacote apt.
+
