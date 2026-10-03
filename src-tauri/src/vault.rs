@@ -397,6 +397,13 @@ pub async fn download_and_install_vault_item(
     app_id: &str,
     target: VaultInstallTarget,
 ) -> Result<PathBuf> {
+    if let VaultInstallTarget::NewProject { project_name, parent_dir, .. } = &target {
+        crate::security::project_name(project_name)?;
+        crate::security::reject_links(parent_dir)?;
+        if parent_dir.join(project_name).exists() { return Err(anyhow!("A pasta do novo projeto já existe")); }
+    }
+    // API path segments and temp names cannot be supplied with separators.
+    for id in [catalog_item_id, app_id] { crate::security::file_name(id)?; }
     VAULT_DOWNLOAD_CANCELLED.store(false, Ordering::SeqCst);
 
     let access_token = crate::epic::get_valid_access_token().await?;
@@ -483,11 +490,8 @@ pub async fn download_and_install_vault_item(
     let total_uncompressed_bytes = download_manifest.total_size() as u64;
 
     // Criar diretório temporário para receber chunks baixados
-    let temp_chunks_dir = std::env::temp_dir()
-        .join("unreal_launcher_vault")
-        .join(format!("{catalog_item_id}_{app_id}"));
-    let _ = fs::remove_dir_all(&temp_chunks_dir);
-    fs::create_dir_all(&temp_chunks_dir)?;
+    let temp_chunks = tempfile::Builder::new().prefix("arcforge-vault-").tempdir()?;
+    let temp_chunks_dir = temp_chunks.path().to_path_buf();
 
     // 2. Mapear todos os chunks únicos necessários
     let mut unique_chunks: HashMap<String, String> = HashMap::new(); // guid -> download_url
@@ -499,6 +503,7 @@ pub async fn download_and_install_vault_item(
                 } else {
                     link.to_string()
                 };
+                crate::security::file_name(&part.guid)?;
                 unique_chunks.entry(part.guid.clone()).or_insert(full_url);
             }
         }
@@ -628,6 +633,7 @@ pub async fn download_and_install_vault_item(
         }
     };
 
+    crate::security::reject_links(&target_dest_dir)?;
     fs::create_dir_all(&target_dest_dir)?;
 
     // Identificar prefixo para remoção (ex: "ProjectName/" ou "Engine/Plugins/Marketplace/PluginName/")
@@ -676,6 +682,7 @@ pub async fn download_and_install_vault_item(
         };
 
         let file_dest = target_dest_dir.join(safe_rel);
+        crate::security::reject_links(&file_dest)?;
         if let Some(parent) = file_dest.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -751,7 +758,7 @@ pub fn sanitize_relative_path(path: &str) -> Option<PathBuf> {
             std::path::Component::Normal(c) => {
                 let s = c.to_string_lossy();
                 // Proibir caracteres de controle e especificadores de drive (ex: C:)
-                if s.contains(':') || s.contains('\0') {
+                if crate::security::file_name(&s).is_err() {
                     return None;
                 }
                 clean.push(c);

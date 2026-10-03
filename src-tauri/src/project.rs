@@ -648,6 +648,7 @@ pub fn create_unreal_project(
     }
 
     let parent_path = Path::new(parent_dir);
+    crate::security::reject_links(parent_path)?;
     if !parent_path.exists() {
         std::fs::create_dir_all(parent_path)
             .with_context(|| format!("não foi possível criar o diretório pai {:?}", parent_path))?;

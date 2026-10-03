@@ -51,20 +51,62 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev rpm
 
+      - name: Audit npm dependencies
+        run: npm audit
+
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --file src-tauri/Cargo.lock
+
       - name: Test Rust backend
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Test frontend build flow
-        run: node --test tests/frontend-build.test.cjs
+        run: node --test tests/frontend-build.test.cjs tests/security-ui.test.cjs
+
+      - name: Test signed release publication gate
+        run: python -m unittest discover -s tests -p test_security_release.py
 
       - name: Build Tauri App and Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCFORGE_UPDATE_PUBLIC_KEY: ${{ vars.ARCFORGE_UPDATE_PUBLIC_KEY }}
         with:
           tagName: v__VERSION__
-          releaseName: 'Unreal Launcher v__VERSION__'
-          releaseBody: 'Instaladores e binários do Unreal Launcher para Linux (.AppImage, .deb) e Windows (.msi, .exe).'
-          releaseDraft: false
+          releaseName: 'ArcForge v__VERSION__'
+          releaseBody: 'Instaladores e binários do ArcForge para Linux (.AppImage, .deb) e Windows (.msi, .exe).'
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  sign-and-publish:
+    needs: release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      ARCFORGE_UPDATE_PUBLIC_KEY: ${{ vars.ARCFORGE_UPDATE_PUBLIC_KEY }}
+      ARCFORGE_SIGNING_KEY_BASE64: ${{ secrets.ARCFORGE_SIGNING_KEY_BASE64 }}
+      ARCFORGE_SIGNING_PASSWORD: ${{ secrets.ARCFORGE_SIGNING_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep release as draft until signing is configured
+        id: signing
+        shell: bash
+        run: |
+          if [ -n "$ARCFORGE_UPDATE_PUBLIC_KEY" ] && [ -n "$ARCFORGE_SIGNING_KEY_BASE64" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Signing is not configured. The release will remain a draft."
+          fi
+      - name: Install Minisign
+        if: steps.signing.outputs.ready == 'true'
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Sign and verify every release package before publishing
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: python3 scripts/sign-release.py

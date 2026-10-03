@@ -73,41 +73,26 @@ fn session_path() -> Result<PathBuf> {
     Ok(dir.join("epic_session.json"))
 }
 
+static SESSION_STORAGE_LOCK: Mutex<()> = Mutex::new(());
+
+fn session_entry() -> Result<keyring::Entry> {
+    keyring::Entry::new("com.fulygames.arcforge", "epic-session").map_err(|_| anyhow!("Armazenamento seguro de credenciais indisponível"))
+}
+
 pub fn load_session() -> Option<EpicSession> {
-    let path = session_path().ok()?;
-    if !path.exists() {
-        return None;
-    }
-    let data = fs::read_to_string(path).ok()?;
+    let _guard = SESSION_STORAGE_LOCK.lock().ok()?;
+    let data = crate::credentials::load(&session_entry().ok()?, &session_path().ok()?).ok()??;
     serde_json::from_str(&data).ok()
 }
 
 pub fn save_session(session: &EpicSession) -> Result<()> {
-    let path = session_path()?;
-    let json = serde_json::to_string_pretty(session)?;
-    fs::write(&path, json)?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = fs::metadata(&path) {
-            let mut perms = metadata.permissions();
-            perms.set_mode(0o600);
-            let _ = fs::set_permissions(&path, perms);
-        }
-    }
-
-    Ok(())
+    let _guard = SESSION_STORAGE_LOCK.lock().map_err(|_| anyhow!("Falha no armazenamento de sessão"))?;
+    crate::credentials::save(&session_entry()?, &session_path()?, &serde_json::to_string(session)?)
 }
 
-
 pub fn clear_session() -> Result<()> {
-    if let Ok(path) = session_path() {
-        if path.exists() {
-            let _ = fs::remove_file(path);
-        }
-    }
-    Ok(())
+    let _guard = SESSION_STORAGE_LOCK.lock().map_err(|_| anyhow!("Falha no armazenamento de sessão"))?;
+    crate::credentials::clear(&session_entry()?, &session_path()?)
 }
 
 fn now_secs() -> u64 {
@@ -127,7 +112,10 @@ pub fn create_client() -> Result<reqwest::Client> {
 }
 
 /// Obtém um token de acesso válido, renovando automaticamente caso esteja próximo da expiração.
+static TOKEN_REFRESH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub async fn get_valid_access_token() -> Result<String> {
+    let _refresh_guard = TOKEN_REFRESH_LOCK.lock().await;
     let mut session = load_session().ok_or_else(|| anyhow!("não há sessão da Epic conectada"))?;
     let now = now_secs();
 
@@ -160,7 +148,7 @@ pub async fn get_valid_access_token() -> Result<String> {
             session.display_name = name;
         }
         session.expires_at = now + token_data.expires_in;
-        let _ = save_session(&session);
+        save_session(&session)?;
     }
 
     Ok(session.access_token)
@@ -324,6 +312,7 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
             }
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                     let mut buf = [0u8; 8192];
                     if let Ok(n) = stream.read(&mut buf) {
                         let req = String::from_utf8_lossy(&buf[..n]);
@@ -431,7 +420,8 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
     .on_navigation(move |nav_url| {
         // 1. Verifica parâmetros diretos da URL
         for (k, v) in nav_url.query_pairs() {
-            if (k == "code" || k == "authorizationCode") && !v.is_empty() {
+            if nav_url.scheme() == "https" && nav_url.host_str() == Some("www.epicgames.com")
+                && nav_url.path() == "/id/api/redirect" && (k == "code" || k == "authorizationCode") && !v.is_empty() {
                 let mut lock = captured_for_nav.lock().unwrap();
                 if lock.is_none() {
                     *lock = Some(v.to_string());
@@ -456,7 +446,7 @@ pub async fn login_via_embedded_window(app: &AppHandle, window: &Window) -> Resu
             }
         }
 
-        true
+        nav_url.scheme() == "https" && matches!(nav_url.host_str(), Some("www.epicgames.com" | "www.unrealengine.com" | "accounts.epicgames.com"))
     })
 
     .build()
@@ -529,24 +519,7 @@ pub async fn get_sso_download_url() -> Result<String> {
 }
 
 pub fn is_valid_engine_download_url(u: &str) -> bool {
-    let u = u.trim();
-    if !u.starts_with("http://") && !u.starts_with("https://") {
-        return false;
-    }
-    if u.contains('#') {
-        return false;
-    }
-    if u.contains("127.0.0.1") || u.contains("localhost") {
-        return false;
-    }
-    if u.contains("unrealengine.com/linux") || u.contains("epicgames.com/id/") {
-        return false;
-    }
-    let path = u.split('?').next().unwrap_or(u).to_lowercase();
-    path.ends_with(".zip")
-        || u.contains(".zip?")
-        || (u.contains(".zip") && u.contains("amazonaws.com"))
-        || u.contains("ucs-blob-store")
+    reqwest::Url::parse(u).is_ok_and(|url| crate::security::engine_url(&url))
 }
 
 pub fn extract_clean_zip_filename(url: &str) -> String {
@@ -557,13 +530,13 @@ pub fn extract_clean_zip_filename(url: &str) -> String {
                     let s = &v[pos + 10..];
                     let f = s.split("''").last().unwrap_or(s);
                     if !f.is_empty() {
-                        return f.to_string();
+                        return safe_zip_filename(f);
                     }
                 } else if let Some(pos) = v.find("filename=") {
                     let s = &v[pos + 9..];
                     let f = s.trim_matches('"').split(';').next().unwrap_or(s);
                     if !f.is_empty() {
-                        return f.to_string();
+                        return safe_zip_filename(f);
                     }
                 }
             }
@@ -571,10 +544,16 @@ pub fn extract_clean_zip_filename(url: &str) -> String {
     }
     let last = url.split('?').next().unwrap_or(url).split('/').last().unwrap_or("Linux_Unreal_Engine.zip");
     if last.ends_with(".zip") {
-        last.to_string()
+        safe_zip_filename(last)
     } else {
-        format!("{last}.zip")
+        "Linux_Unreal_Engine.zip".to_string()
     }
+}
+
+fn safe_zip_filename(name: &str) -> String {
+    if crate::security::file_name(name).is_ok() && name.to_ascii_lowercase().ends_with(".zip") {
+        name.to_string()
+    } else { "Linux_Unreal_Engine.zip".to_string() }
 }
 
 /// Resolve a URL oficial do pacote pré-compilado da Unreal Engine via SSO de forma silenciosa,
@@ -599,6 +578,9 @@ pub async fn open_engine_downloader_window(
         .context("falha ao iniciar listener para interceptação de download")?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
+    let download_nonce = uuid::Uuid::new_v4().to_string();
+    let nonce_tcp = download_nonce.clone();
+    let nonce_nav = download_nonce.clone();
 
     let closed = Arc::new(AtomicBool::new(false));
     let closed_flag = closed.clone();
@@ -611,17 +593,21 @@ pub async fn open_engine_downloader_window(
             }
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                     let mut buf = [0u8; 8192];
                     if let Ok(n) = stream.read(&mut buf) {
                         let req = String::from_utf8_lossy(&buf[..n]);
                         if let Some(first_line) = req.lines().next() {
                             if let Some(path) = first_line.split_whitespace().nth(1) {
                                 if let Ok(parsed) = reqwest::Url::parse(&format!("http://127.0.0.1:{port}{path}")) {
+                                    if !crate::security::callback_url(&parsed, port, &nonce_tcp) {
+                                        let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+                                        continue;
+                                    }
                                     for (k, v) in parsed.query_pairs() {
                                         if k == "url" && is_valid_engine_download_url(&v) {
                                             let real_s3_url = v.to_string();
                                             let clean_name = extract_clean_zip_filename(&real_s3_url);
-                                            println!("[DOWNLOAD INTERCEPTOR] Capturado link da S3 via TCP: {} ({})", &clean_name, &real_s3_url);
                                             let mut lock = captured_tcp.lock().unwrap();
                                             *lock = Some(EngineBlob {
                                                 name: clean_name,
@@ -638,7 +624,7 @@ pub async fn open_engine_downloader_window(
                         let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\nOK";
                         let _ = stream.write_all(resp.as_bytes());
                     }
-                    break;
+                    if captured_tcp.lock().unwrap().is_some() { break; }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(100));
@@ -648,7 +634,7 @@ pub async fn open_engine_downloader_window(
         }
     });
 
-    let target_ver_str = target_version.unwrap_or_default();
+    let target_ver_str = serde_json::to_string(&target_version.unwrap_or_default())?;
 
     // Script inteligente injetado: busca na API de blobs, intercepta rede e analisa botões no DOM
     let init_script = format!(r#"
@@ -669,10 +655,10 @@ pub async fn open_engine_downloader_window(
             function report(url) {{
                 if (reported || !isRealZipUrl(url)) return;
                 reported = true;
-                window.location.replace('http://127.0.0.1:{port}/download?url=' + encodeURIComponent(url));
+                window.location.replace('http://127.0.0.1:{port}/download?nonce={download_nonce}&url=' + encodeURIComponent(url));
             }}
 
-            var targetVer = "{target_ver_str}".toLowerCase();
+            var targetVer = {target_ver_str}.toLowerCase();
             var majorMinor = targetVer ? targetVer.split('.').slice(0, 2).join('.') : '';
 
             // 1. Consulta diretamente a API de blobs de Linux com os cookies autenticados do SSO
@@ -800,11 +786,11 @@ pub async fn open_engine_downloader_window(
     .on_navigation(move |nav_url| {
         // 1. Se for o redirecionamento local para 127.0.0.1, extrai o parâmetro "url"
         if nav_url.host_str() == Some("127.0.0.1") || nav_url.host_str() == Some("localhost") {
+            if !crate::security::callback_url(nav_url, port, &nonce_nav) { return false; }
             for (k, v) in nav_url.query_pairs() {
                 if k == "url" && is_valid_engine_download_url(&v) {
                     let real_s3_url = v.to_string();
                     let clean_name = extract_clean_zip_filename(&real_s3_url);
-                    println!("[DOWNLOAD INTERCEPTOR] Capturado link da S3 via 127.0.0.1: {} ({})", &clean_name, &real_s3_url);
                     let mut lock = captured_nav.lock().unwrap();
                     *lock = Some(EngineBlob {
                         name: clean_name,
@@ -823,7 +809,6 @@ pub async fn open_engine_downloader_window(
         let s = nav_url.as_str();
         if is_valid_engine_download_url(s) {
             let clean_name = extract_clean_zip_filename(s);
-            println!("[DOWNLOAD INTERCEPTOR] Capturado link da S3 direto via navegação: {} ({})", &clean_name, s);
             let mut lock = captured_nav.lock().unwrap();
             *lock = Some(EngineBlob {
                 name: clean_name,
@@ -835,7 +820,7 @@ pub async fn open_engine_downloader_window(
             return false;
         }
 
-        true
+        nav_url.scheme() == "https" && matches!(nav_url.host_str(), Some("www.epicgames.com" | "www.unrealengine.com" | "accounts.epicgames.com"))
     })
     .build()
     .context("falha ao inicializar o capturador de download da Epic")?;
@@ -1160,8 +1145,8 @@ mod tests {
     #[test]
     fn test_is_valid_engine_download_url() {
         // Redirecionamento local NUNCA deve ser considerado URL de download
-        assert!(!is_valid_engine_download_url("http://127.0.0.1:43221/download?url=https%3A%2F%2Fucs-blob-store.s3-accelerate.amazonaws.com%2Fblobs%2Ffile.zip"));
-        assert!(!is_valid_engine_download_url("http://localhost:5000/download?url=https://s3.amazonaws.com/test.zip"));
+        assert!(!is_valid_engine_download_url("http://127.0.0.1:43221/download?nonce={download_nonce}&url=https%3A%2F%2Fucs-blob-store.s3-accelerate.amazonaws.com%2Fblobs%2Ffile.zip"));
+        assert!(!is_valid_engine_download_url("http://localhost:5000/download?nonce={download_nonce}&url=https://s3.amazonaws.com/test.zip"));
 
         // Páginas HTML e âncoras NUNCA devem ser consideradas
         assert!(!is_valid_engine_download_url("https://www.unrealengine.com/linux#Linux_Unreal_Engine_5.5"));

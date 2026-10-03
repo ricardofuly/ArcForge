@@ -178,7 +178,7 @@ function renderIdeOptions(selectedIde) {
     .map((ide) => {
       const runnerText = ide.runner ? ` (${ide.runner})` : (!ide.is_available ? " (não instalado)" : "");
       const isSelected = preferred === ide.id ? "selected" : "";
-      return `<option value="${ide.id}" ${isSelected}>${ide.name}${runnerText}</option>`;
+      return `<option value="${escapeHtml(ide.id)}" ${isSelected}>${escapeHtml(ide.name)}${escapeHtml(runnerText)}</option>`;
     })
     .join("");
 }
@@ -713,7 +713,7 @@ document.getElementById("btn-choice-delete-disk")?.addEventListener("click", asy
   try {
     await invoke("delete_project_from_disk", { uprojectPath: proj.uproject_path });
     await refreshProjects();
-    showToast(`Pasta e arquivos de ${proj.name} foram excluídos permanentemente.`);
+    showToast(`Pasta e arquivos de ${proj.name} foram enviados para a Lixeira.`);
   } catch (err) {
     showToast(`Erro ao excluir projeto: ${err}`, true);
   }
@@ -1113,7 +1113,7 @@ function renderAvailableEngines() {
     card.innerHTML = `
       <div class="available-info">
         <span class="available-title">
-          ${cleanName}
+          ${escapeHtml(cleanName)}
           ${badgePrecompiled}
           ${isInstalled ? '<span class="engine-badge">instalada</span>' : ""}
         </span>
@@ -2319,7 +2319,7 @@ function openAppUpdateModal() {
   if (progressBox) progressBox.hidden = true;
   if (startBtn) {
     startBtn.disabled = false;
-    startBtn.innerHTML = `<span>Atualizar Agora</span>`;
+    startBtn.innerHTML = availableUpdate.automatic_update_ready ? `<span>Atualizar Agora</span>` : `<span>Ver release oficial</span>`;
   }
 
   if (modal) modal.hidden = false;
@@ -2336,6 +2336,10 @@ function closeAppUpdateModal() {
 
 async function startLiveUpdate() {
   if (!availableUpdate) return;
+  if (!availableUpdate.automatic_update_ready) {
+    await openUrl("https://github.com/ricardofuly/ArcForge/releases/latest");
+    return;
+  }
   if (!availableUpdate.asset_url) {
     showToast("Nenhum binário direto encontrado para esta versão. Abrindo GitHub...", "info");
     if (availableUpdate.html_url) {

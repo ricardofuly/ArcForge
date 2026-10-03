@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
 
-const GITHUB_REPO: &str = "ricardofuly/UnrealLauncher-Linux";
+const GITHUB_REPO: &str = "ricardofuly/ArcForge";
 const USER_AGENT: &str = "Unreal-Launcher-AutoUpdater";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +23,7 @@ pub struct UpdateInfo {
     pub asset_url: Option<String>,
     pub asset_size: u64,
     pub is_appimage: bool,
+    pub automatic_update_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,36 +109,6 @@ fn select_platform_asset(assets: &[GithubAsset]) -> Option<&GithubAsset> {
     }
 
     // Fallback genérico caso não encontre pelas extensões acima
-    assets.first()
-}
-
-/// Tenta encontrar um token do GitHub (variáveis de ambiente ou configuração do GitHub CLI)
-fn find_github_token() -> Option<String> {
-    if let Ok(token) = std::env::var("GITHUB_TOKEN").or_else(|_| std::env::var("UNREAL_LAUNCHER_GITHUB_TOKEN")) {
-        let token = token.trim();
-        if !token.is_empty() {
-            return Some(token.to_string());
-        }
-    }
-
-    // Tenta ler o token do GitHub CLI (~/.config/gh/hosts.yml)
-    if let Some(config_dir) = dirs::config_dir() {
-        let gh_hosts = config_dir.join("gh").join("hosts.yml");
-        if let Ok(content) = std::fs::read_to_string(gh_hosts) {
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("oauth_token:") {
-                    if let Some(token) = trimmed.strip_prefix("oauth_token:") {
-                        let token = token.trim();
-                        if !token.is_empty() {
-                            return Some(token.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     None
 }
 
@@ -148,14 +119,14 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        .https_only(true)
+        .redirect(update_redirect_policy())
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| format!("Erro ao inicializar cliente HTTP: {}", e))?;
 
-    let mut req = client.get(&url).header("Accept", "application/vnd.github.v3+json");
+    let req = client.get(&url).header("Accept", "application/vnd.github.v3+json");
 
-    if let Some(token) = find_github_token() {
-        req = req.header("Authorization", format!("Bearer {}", token));
-    }
 
     let resp = req
         .send()
@@ -201,6 +172,8 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
         asset_url: chosen_asset.map(|a| a.browser_download_url.clone()),
         asset_size: chosen_asset.map(|a| a.size).unwrap_or(0),
         is_appimage,
+        automatic_update_ready: option_env!("ARCFORGE_UPDATE_PUBLIC_KEY").is_some_and(|k| !k.trim().is_empty())
+            && chosen_asset.is_some_and(|asset| release.assets.iter().any(|s| s.name == format!("{}.minisig", asset.name))),
     })
 }
 
@@ -210,15 +183,25 @@ pub async fn download_and_apply_update(
     asset_name: String,
     app: AppHandle,
 ) -> Result<(), String> {
+    // Resolve again in Rust; the frontend cannot select an arbitrary installer.
+    let key = option_env!("ARCFORGE_UPDATE_PUBLIC_KEY").filter(|k| !k.trim().is_empty())
+        .ok_or("Atualização automática indisponível: chave de assinatura não configurada. Use a página oficial de releases.")?;
+    let release = check_for_updates().await?;
+    if !release.has_update || release.asset_url.as_deref() != Some(&asset_url)
+        || release.asset_name.as_deref() != Some(&asset_name) {
+        return Err("Pacote não corresponde à atualização oficial disponível".into());
+    }
+    crate::security::file_name(&asset_name).map_err(|e| e.to_string())?;
+    if !valid_release_asset_url(&asset_url) { return Err("Origem de atualização inválida".into()); }
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        .https_only(true)
+        .redirect(update_redirect_policy())
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| format!("Erro ao inicializar cliente HTTP: {}", e))?;
 
-    let mut req = client.get(&asset_url);
-    if let Some(token) = find_github_token() {
-        req = req.header("Authorization", format!("Bearer {}", token));
-    }
+    let req = client.get(&asset_url);
 
     let res = req
         .send()
@@ -233,11 +216,12 @@ pub async fn download_and_apply_update(
     }
 
     let total_bytes = res.content_length().unwrap_or(0);
-    let temp_dir = std::env::temp_dir();
-    let temp_file_path = temp_dir.join(format!("unreal_launcher_update_{}", asset_name));
+    let temp_dir = tempfile::Builder::new().prefix("arcforge-update-").tempdir()
+        .map_err(|e| format!("Erro ao criar pasta temporária: {e}"))?;
+    let temp_file_path = temp_dir.path().join(&asset_name);
 
     // Abre o arquivo de destino para escrita assíncrona
-    let mut file = tokio::fs::File::create(&temp_file_path)
+    let mut file = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&temp_file_path)
         .await
         .map_err(|e| format!("Erro ao criar arquivo temporário: {}", e))?;
 
@@ -266,6 +250,7 @@ pub async fn download_and_apply_update(
             .map_err(|e| format!("Erro ao gravar dados no disco: {}", e))?;
 
         downloaded_bytes += chunk.len() as u64;
+        if downloaded_bytes > 512 * 1024 * 1024 { return Err("Atualização excede o limite de 512 MB".into()); }
 
         if last_emit.elapsed().as_millis() >= 250 {
             let elapsed_sec = last_emit.elapsed().as_secs_f32();
@@ -308,6 +293,19 @@ pub async fn download_and_apply_update(
         .map_err(|e| format!("Erro ao finalizar gravação do arquivo: {}", e))?;
     drop(file);
 
+    let signature_url = format!("{asset_url}.minisig");
+    let response = client.get(&signature_url).send().await.map_err(|_| "Falha ao obter assinatura")?
+        .error_for_status().map_err(|_| "Assinatura ausente: atualização bloqueada")?;
+    let mut signature_bytes = Vec::new();
+    let mut chunks = response.bytes_stream();
+    while let Some(chunk) = chunks.next().await {
+        let chunk = chunk.map_err(|_| "Falha ao ler assinatura")?;
+        if signature_bytes.len() + chunk.len() > 16 * 1024 { return Err("Assinatura muito grande".into()); }
+        signature_bytes.extend_from_slice(&chunk);
+    }
+    let signature_text = std::str::from_utf8(&signature_bytes).map_err(|_| "Assinatura inválida")?;
+    verify_update(&temp_file_path, key, signature_text, &release.latest_version, &asset_name)?;
+
     // Emite progresso de 100%
     let _ = app.emit(
         "app_update_progress",
@@ -322,6 +320,8 @@ pub async fn download_and_apply_update(
     );
 
     // Aplicação da atualização conforme a plataforma
+    // Installer continues after app exits. Preserve only the verified package directory.
+    let _verified_dir = temp_dir.keep();
     apply_update_file(&temp_file_path, &asset_name, app)
 }
 
@@ -433,10 +433,60 @@ fn apply_update_file(update_path: &Path, asset_name: &str, app: AppHandle) -> Re
     Ok(())
 }
 
+fn valid_release_asset_url(raw: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(raw) else { return false; };
+    url.scheme() == "https" && url.host_str() == Some("github.com")
+        && url.port_or_known_default() == Some(443) && url.username().is_empty()
+        && url.password().is_none() && url.query().is_none() && url.fragment().is_none()
+        && url.path().starts_with("/ricardofuly/ArcForge/releases/download/")
+}
+
+fn update_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let url = attempt.url();
+        if attempt.previous().len() >= 5 || url.scheme() != "https"
+            || url.port_or_known_default() != Some(443)
+            || !matches!(url.host_str(), Some("api.github.com" | "github.com" | "release-assets.githubusercontent.com" | "objects.githubusercontent.com")) {
+            attempt.error("Redirecionamento de atualização não autorizado")
+        } else { attempt.follow() }
+    })
+}
+
+fn verify_update(path: &Path, key: &str, signature: &str, version: &str, name: &str) -> Result<(), String> {
+    let data = std::fs::read(path).map_err(|_| "Não foi possível ler a atualização")?;
+    verify_signed_bytes(&data, key, signature, &format!("ArcForge version={version} asset={name}"))
+}
+
+fn verify_signed_bytes(data: &[u8], key: &str, signature: &str, expected: &str) -> Result<(), String> {
+    let key = minisign_verify::PublicKey::from_base64(key.trim()).map_err(|_| "Chave pública inválida")?;
+    let sig = minisign_verify::Signature::decode(signature).map_err(|_| "Assinatura inválida")?;
+    key.verify(data, &sig, false).map_err(|_| "Assinatura não confere: atualização bloqueada")?;
+    // Bind version/name inside the signed trusted comment to prevent relabelled older packages.
+    if sig.trusted_comment() != expected { return Err("Assinatura pertence a outra versão/pacote".into()); }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn rejects_external_asset_origins_and_traversal() {
+        assert!(valid_release_asset_url("https://github.com/ricardofuly/ArcForge/releases/download/v0.2.0/ArcForge-setup.exe"));
+        for url in ["http://github.com/ricardofuly/ArcForge/releases/download/v0.2.0/a.exe", "https://evil.invalid/a.exe", "https://github.com/other/repo/releases/download/v0.2.0/a.exe", "https://github.com.evil.invalid/ricardofuly/ArcForge/releases/download/v0.2.0/a.exe"] { assert!(!valid_release_asset_url(url)); }
+    }
+    #[test]
+    fn signatures_reject_modified_bytes_comments_and_wrong_release() {
+        // Public prehashed test vector from minisign-verify; no private signing key.
+        let key = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        let signature = "untrusted comment: signature from minisign secret key\nRUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=\ntrusted comment: timestamp:1556193335\tfile:test\ny/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==";
+        let expected = "timestamp:1556193335\tfile:test";
+        assert!(verify_signed_bytes(b"test", key, signature, expected).is_ok());
+        assert!(verify_signed_bytes(b"Test", key, signature, expected).is_err());
+        assert!(verify_signed_bytes(b"test", key, signature, "ArcForge version=0.2.0 asset=installer.exe").is_err());
+        assert!(verify_signed_bytes(b"test", key, &signature.replace(expected, "ArcForge version=0.2.0 asset=installer.exe"), "ArcForge version=0.2.0 asset=installer.exe").is_err());
+        assert!(verify_signed_bytes(b"test", key, "", expected).is_err());
+    }
     #[test]
     fn test_is_newer_version() {
         assert!(is_newer_version("0.1.0", "0.1.1"));
