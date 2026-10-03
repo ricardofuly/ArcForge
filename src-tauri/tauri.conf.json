@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Unreal Launcher",
+  "productName": "ArcForge",
   "version": "0.1.2",
   "identifier": "com.fulygames.unreal-launcher",
   "build": {
@@ -10,12 +10,13 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Unreal Launcher",
+        "title": "ArcForge",
         "width": 1180,
         "height": 760,
         "minWidth": 900,
         "minHeight": 600,
         "resizable": true,
+        "decorations": false,
         "center": true
       }
     ],

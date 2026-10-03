@@ -3,6 +3,10 @@ const { listen } = window.__TAURI__.event;
 const { open: openDialog } = window.__TAURI__.dialog;
 const { openUrl } = window.__TAURI__.opener;
 
+function uiIcon(name) {
+  return `<svg class="ui-icon" aria-hidden="true"><use href="icons.svg#${name}" /></svg>`;
+}
+
 const LINUX_DOWNLOAD_URL = "https://www.unrealengine.com/linux?lang=pt-BR";
 const isWindows = navigator.userAgent.toLowerCase().includes("windows");
 let activeProjectLaunch = null;
@@ -191,7 +195,7 @@ function updateTopDownloadWidgetVisibility() {
     // Nas outras abas (Home, Engines, Projetos), mostra se houver download ativo
     if (isDownloadActive) {
       if (topActive) topActive.hidden = false;
-      if (topBtn) topBtn.hidden = true;
+      if (topBtn) topBtn.hidden = false;
     } else {
       if (topActive) topActive.hidden = true;
       if (topBtn) topBtn.hidden = false;
@@ -244,6 +248,8 @@ function updateSidebarStats() {
   if (statsEl) {
     statsEl.textContent = `${engines.length} engine${engines.length === 1 ? "" : "s"} • ${projects.length} projeto${projects.length === 1 ? "" : "s"}`;
   }
+  const workspaceStats = document.getElementById("workspace-stats");
+  if (workspaceStats) workspaceStats.textContent = `${engines.length} engine${engines.length === 1 ? "" : "s"} · ${projects.length} projeto${projects.length === 1 ? "" : "s"}`;
 }
 
 // ---------- Engines ----------
@@ -254,59 +260,12 @@ async function refreshEngines() {
 }
 
 function renderEngines() {
-  // 1. Renderiza no Carrossel Horizontal do Dashboard (Estilo Servidores da Referência)
-  const carousel = document.getElementById("dashboard-engine-carousel");
-  const dashEmpty = document.getElementById("dashboard-engine-empty");
-  if (carousel && dashEmpty) {
-    carousel.innerHTML = "";
-    if (engines.length === 0) {
-      dashEmpty.hidden = false;
-    } else {
-      dashEmpty.hidden = true;
-      for (const eng of engines) {
-        const card = document.createElement("div");
-        card.className = "engine-status-card";
-        card.innerHTML = `
-          <div class="engine-status-top">
-            <span class="engine-status-name" title="Unreal Engine ${escapeHtml(eng.version)}">Unreal Engine ${escapeHtml(eng.version)}</span>
-            <span class="status-indicator-dot" title="Pronta para uso"></span>
-          </div>
-          <div class="engine-status-meta">
-            <span>${eng.is_source_build ? "Source" : "Installed"}</span>
-            <span>${isWindows ? "Windows" : "Linux"}</span>
-          </div>
-          <button class="btn-engine-launch">
-            Iniciar Editor ›
-          </button>
-        `;
-        card.querySelector(".btn-engine-launch").addEventListener("click", async () => {
-          try {
-            await invoke("launch_engine_editor", { engineId: eng.id, rhiMode: "auto" });
-            showToast(`Iniciando o editor da Unreal Engine ${eng.version}…`);
-          } catch (err) {
-            showToast(String(err), true);
-          }
-        });
-        carousel.appendChild(card);
-      }
-
-      // Card de atalho "+ Adicionar" no final do carrossel
-      const addCard = document.createElement("button");
-      addCard.className = "btn-add-engine-card";
-      addCard.innerHTML = `
-        <span style="font-size: 18px; line-height: 1;">+</span>
-        <span style="font-size: 11px; font-weight: 600;">Registrar Engine</span>
-      `;
-      addCard.addEventListener("click", showEngineSourceModal);
-      carousel.appendChild(addCard);
-    }
-  }
-
-  // 2. Renderiza na aba dedicada "Engines" (Visualização Clássica)
+  // Installed engines remain accessible in their dedicated tab.
   const grid = document.getElementById("engine-list");
   const empty = document.getElementById("engine-empty");
   if (grid && empty) {
-    grid.innerHTML = "";
+    const downloadCard = document.getElementById("btn-open-epic-downloader");
+    grid.querySelectorAll(".engine-card:not(.engine-download-card)").forEach((card) => card.remove());
     if (engines.length === 0) {
       empty.hidden = false;
     } else {
@@ -340,7 +299,7 @@ function renderEngines() {
           await refreshProjects();
           showToast(`Engine ${eng.version} desvinculada do launcher.`);
         });
-        grid.appendChild(card);
+        grid.insertBefore(card, downloadCard);
       }
     }
   }
@@ -443,7 +402,7 @@ document.getElementById("choice-extract-zip").addEventListener("click", async ()
     cardBytes.textContent = "Descompactando pacote local…";
     cardBytes.title = `Descompactando em ${destDir}`;
   }
-  if (cardSpeed) cardSpeed.textContent = "💾 Gravando no disco";
+  if (cardSpeed) cardSpeed.textContent = "Gravando no disco";
   if (cardEta) {
     cardEta.textContent = "Iniciando extração…";
     cardEta.title = "Iniciando extração…";
@@ -502,12 +461,12 @@ async function refreshProjectDirs() {
 
 function renderWatchedDirs() {
   const containers = [
-    document.getElementById("dashboard-watched-dirs"),
     document.getElementById("watched-dirs"),
   ].filter(Boolean);
 
   for (const row of containers) {
     row.innerHTML = "";
+    if (projectDirs.length === 0) row.textContent = "Nenhuma pasta monitorada ainda.";
     for (const dir of projectDirs) {
       const chip = document.createElement("div");
       chip.className = "chip";
@@ -516,7 +475,9 @@ function renderWatchedDirs() {
       chip.appendChild(span);
 
       const removeBtn = document.createElement("button");
-      removeBtn.textContent = "×";
+      removeBtn.innerHTML = uiIcon("close");
+      removeBtn.title = `Parar de monitorar ${dir}`;
+      removeBtn.setAttribute("aria-label", `Parar de monitorar ${dir}`);
       removeBtn.addEventListener("click", async () => {
         await invoke("remove_project_dir", { path: dir });
         await refreshProjectDirs();
@@ -569,9 +530,7 @@ function createModernProjectCard(proj) {
   card.innerHTML = `
     <div class="modern-proj-cover">
       <div class="modern-proj-placeholder">
-        <svg viewBox="0 0 24 24" fill="currentColor" class="modern-proj-placeholder-watermark">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-        </svg>
+        <img src="assets/arcforge-logo.png" alt="" class="modern-proj-placeholder-watermark" />
         <span class="modern-proj-placeholder-initials">${initials}</span>
       </div>
       <div class="modern-proj-badges">
@@ -581,7 +540,7 @@ function createModernProjectCard(proj) {
     </div>
     <div class="modern-proj-content">
       <h3 class="modern-proj-title" title="${escapeHtml(proj.name)}">${escapeHtml(proj.name)}</h3>
-      <span class="modern-proj-path" title="Clique para abrir pasta no sistema: ${escapeHtml(proj.uproject_path)}">📁 ${escapeHtml(proj.project_dir)}</span>
+      <span class="modern-proj-path" title="Clique para abrir pasta no sistema: ${escapeHtml(proj.uproject_path)}">${uiIcon("folder")} ${escapeHtml(proj.project_dir)}</span>
 
       <div class="modern-proj-selectors">
         <select class="select-dark engine-select" title="Versão da Unreal Engine">
@@ -589,9 +548,9 @@ function createModernProjectCard(proj) {
           ${engineOptions}
         </select>
         <select class="select-dark rhi-select" title="Compatibilidade Gráfica (SM5/SM6)" style="max-width: 110px;">
-          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>⚡ Auto</option>
-          <option value="sm5" ${proj.rhi_mode === "sm5" ? "selected" : ""}>🛡️ SM5</option>
-          <option value="sm6" ${proj.rhi_mode === "sm6" ? "selected" : ""}>🚀 SM6</option>
+          <option value="auto" ${(!proj.rhi_mode || proj.rhi_mode === "auto") ? "selected" : ""}>Auto</option>
+          <option value="sm5" ${proj.rhi_mode === "sm5" ? "selected" : ""}>SM5</option>
+          <option value="sm6" ${proj.rhi_mode === "sm6" ? "selected" : ""}>SM6</option>
         </select>
         ${proj.has_source ? `
           <select class="select-dark ide-select" title="IDE para C++" style="max-width: 140px;">
@@ -603,20 +562,18 @@ function createModernProjectCard(proj) {
       <div class="modern-proj-footer">
         <button class="btn-open-proj-primary btn-open-project" ${engines.length === 0 ? "disabled" : ""}>
           <span>Iniciar Projeto</span>
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>
-          </svg>
+          ${uiIcon("play")}
         </button>
         ${proj.has_source ? `
           <button class="btn-proj-icon-action btn-open-ide" title="Abrir projeto na IDE">
-            ↗
+            ${uiIcon("code")}
           </button>
         ` : ""}
         <button class="btn-proj-icon-action btn-open-folder" title="Abrir pasta no gerenciador de arquivos">
-          📁
+          ${uiIcon("folder")}
         </button>
         <button class="btn-proj-icon-action danger btn-remove-project" title="Remover da lista monitorada">
-          ×
+          ${uiIcon("close")}
         </button>
       </div>
     </div>
@@ -772,7 +729,7 @@ function renderProjects() {
       heroEmpty.hidden = false;
     } else {
       heroEmpty.hidden = true;
-      for (const proj of projects) {
+      for (const proj of projects.slice(0, 2)) {
         heroContainer.appendChild(createModernProjectCard(proj));
       }
     }
@@ -919,6 +876,9 @@ document.getElementById("card-type-cpp")?.addEventListener("click", () => setPro
 
 document.getElementById("btn-create-project-trigger")?.addEventListener("click", openCreateProjectModal);
 document.getElementById("btn-dash-create-project")?.addEventListener("click", openCreateProjectModal);
+document.getElementById("btn-hero-create-project")?.addEventListener("click", openCreateProjectModal);
+document.getElementById("btn-hero-view-projects")?.addEventListener("click", () => switchView("projects"));
+document.getElementById("btn-dashboard-all-projects")?.addEventListener("click", () => switchView("projects"));
 document.getElementById("btn-dash-empty-create-project")?.addEventListener("click", openCreateProjectModal);
 document.getElementById("btn-projects-empty-create")?.addEventListener("click", openCreateProjectModal);
 
@@ -936,14 +896,6 @@ document.getElementById("btn-browse-new-proj-dir")?.addEventListener("click", as
   if (folder) {
     document.getElementById("input-new-proj-dir").value = folder;
   }
-});
-
-document.getElementById("btn-add-folder-projects-tab")?.addEventListener("click", async () => {
-  const folder = await openDialog({ directory: true, title: "Selecione a pasta onde ficam seus projetos" });
-  if (!folder) return;
-  await invoke("add_project_dir", { path: folder });
-  await refreshProjectDirs();
-  await refreshProjects();
 });
 
 document.getElementById("btn-rescan-projects-tab")?.addEventListener("click", async () => {
@@ -1237,7 +1189,7 @@ async function loadEngineCatalog(force = false) {
 
   if (force && refreshBtn) {
     refreshBtn.disabled = true;
-    refreshBtn.textContent = "↻ Atualizando…";
+    refreshBtn.innerHTML = `${uiIcon("refresh")} Atualizando…`;
   }
 
   // Se já tivermos itens em memória ou cache, não bloqueia a tela com loading pesado
@@ -1277,7 +1229,7 @@ async function loadEngineCatalog(force = false) {
   } finally {
     if (refreshBtn) {
       refreshBtn.disabled = false;
-      refreshBtn.textContent = "↻ Atualizar";
+      refreshBtn.innerHTML = `${uiIcon("refresh")} Atualizar`;
     }
   }
 }
@@ -1650,7 +1602,7 @@ async function startEngineDownload(blob, cleanName, destDir) {
         cardBytes.textContent = "Descompactando arquivos…";
         cardBytes.title = `Descompactando arquivos em ${destDir}`;
       }
-      if (cardSpeed) cardSpeed.textContent = "💾 Gravando no disco";
+      if (cardSpeed) cardSpeed.textContent = "Gravando no disco";
       if (cardEta) {
         const raw = event.payload.currentFile || "Instalando…";
         const clean = raw.replace(/^(inflating|extracting|creating):\s*/i, "").trim();
@@ -1762,7 +1714,7 @@ listen("engine-download-progress", (event) => {
     cardBytes.textContent = `${dlGb} GB / ${totalGb} GB`;
     cardBytes.title = `${dlGb} GB baixados de ${totalGb} GB`;
   }
-  if (cardSpeed) cardSpeed.textContent = isPaused ? "Pausado" : `⚡ ${speedMbps.toFixed(1)} MB/s`;
+  if (cardSpeed) cardSpeed.textContent = isPaused ? "Pausado" : `${speedMbps.toFixed(1)} MB/s`;
 
   if (cardEta) {
     let etaText = "Calculando tempo restante…";
@@ -1793,11 +1745,11 @@ listen("engine-download-progress", (event) => {
     const topSub = document.getElementById("top-dl-sub");
 
     if (topActive && topBar && topPercent && topSub) {
-      if (topBtn) topBtn.hidden = true;
+      if (topBtn) topBtn.hidden = false;
       topActive.hidden = false;
       topBar.style.width = `${percent}%`;
       topPercent.textContent = `${pct}%`;
-      topSub.textContent = isPaused ? `Pausado • ${dlGb}/${totalGb} GB` : `⚡ ${speedMbps.toFixed(1)} MB/s • ${dlGb}/${totalGb} GB`;
+      topSub.textContent = isPaused ? `Pausado • ${dlGb}/${totalGb} GB` : `${speedMbps.toFixed(1)} MB/s • ${dlGb}/${totalGb} GB`;
     }
   } else {
     // Na aba downloads, garante que fica estritamente oculta
@@ -1842,7 +1794,7 @@ async function refreshVault(forceRefresh = false) {
   if (empty) empty.hidden = true;
   if (refreshBtn && forceRefresh) {
     refreshBtn.disabled = true;
-    refreshBtn.textContent = "↻ Sincronizando…";
+    refreshBtn.innerHTML = `${uiIcon("refresh")} Sincronizando…`;
   }
 
   try {
@@ -1861,7 +1813,7 @@ async function refreshVault(forceRefresh = false) {
     isVaultRefreshing = false;
     if (refreshBtn) {
       refreshBtn.disabled = false;
-      refreshBtn.textContent = "↻ Sincronizar";
+      refreshBtn.innerHTML = `${uiIcon("refresh")} Sincronizar`;
     }
   }
 }
@@ -1949,7 +1901,7 @@ function createVaultCard(item) {
   const isSafeThumb = item.thumbnail_url && /^https?:\/\//i.test(item.thumbnail_url);
   const thumbHtml = isSafeThumb
     ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="${escapeHtml(item.title)}" loading="lazy" />`
-    : `<div class="vault-card-placeholder">📦</div>`;
+    : `<div class="vault-card-placeholder">${uiIcon("box")}</div>`;
 
   card.innerHTML = `
     <div class="vault-card-cover">
@@ -2260,7 +2212,7 @@ listen("vault-download-progress", (event) => {
   }
   if (speedEl && p.speed_bytes_per_sec > 0) {
     const spdMb = (p.speed_bytes_per_sec / (1024 * 1024)).toFixed(1);
-    speedEl.textContent = `⚡ ${spdMb} MB/s`;
+    speedEl.textContent = `${spdMb} MB/s`;
   }
 });
 
@@ -2320,13 +2272,13 @@ async function checkForAppUpdates(manual = false) {
     const info = await invoke("check_app_update");
     if (info && info.has_update) {
       availableUpdate = info;
-      if (pillText) pillText.textContent = `🚀 Nova versão v${info.latest_version} disponível!`;
+      if (pillText) pillText.textContent = `Nova versão v${info.latest_version} disponível!`;
       if (pillBtn) pillBtn.hidden = false;
 
       if (manual) {
         openAppUpdateModal();
       } else {
-        showToast(`Nova versão v${info.latest_version} do Unreal Launcher disponível!`, "info");
+        showToast(`Nova versão v${info.latest_version} do ArcForge disponível!`, "info");
       }
     } else {
       if (pillBtn) pillBtn.hidden = true;
@@ -2453,7 +2405,7 @@ listen("app_update_progress", (event) => {
   }
 
   if (speedEl && p.speed_mbps > 0) {
-    speedEl.textContent = `⚡ ${p.speed_mbps.toFixed(1)} MB/s`;
+    speedEl.textContent = `${p.speed_mbps.toFixed(1)} MB/s`;
   }
 });
 
