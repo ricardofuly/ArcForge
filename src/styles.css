@@ -2260,3 +2260,7 @@ button { font-family: inherit; user-select: none; }
 }
 
 
+.project-build-dialog { width: min(900px, 92vw); max-height: 90vh; overflow: auto; }
+#project-build-progress { width: 100%; height: 18px; accent-color: var(--accent, #f59e0b); }
+#project-build-log { height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #111; color: #ddd; font: 12px/1.5 Consolas, monospace; border-radius: 8px; }
+#project-build-log-path { font-size: 12px; overflow-wrap: anywhere; }

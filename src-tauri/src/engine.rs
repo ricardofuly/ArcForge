@@ -1,6 +1,7 @@
 use crate::config::EngineInstall;
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
+#[cfg(not(target_os = "windows"))]
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -75,13 +76,32 @@ fn build_install(root: &Path, is_source_build: bool) -> Result<EngineInstall> {
 
     let version = read_build_version(root).unwrap_or_else(|_| "desconhecida".to_string());
 
+    let id = Uuid::new_v4().to_string();
+    #[cfg(target_os = "windows")]
+    let id = existing_windows_build_id(root).unwrap_or(id);
+
     Ok(EngineInstall {
-        id: Uuid::new_v4().to_string(),
+        id,
         label: format!("Unreal Engine {}", version),
         version,
         path: root.to_string_lossy().to_string(),
         editor_binary: binary.to_string_lossy().to_string(),
         is_source_build,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn existing_windows_build_id(root: &Path) -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    let output = Command::new("reg.exe")
+        .args(["query", "HKCU\\Software\\Epic Games\\Unreal Engine\\Builds"])
+        .creation_flags(0x08000000).output().ok()?;
+    let normalize = |s: &str| s.trim().trim_end_matches(['/', '\\']).replace('/', "\\").to_lowercase();
+    let expected = normalize(root.to_str()?);
+    String::from_utf8_lossy(&output.stdout).lines().find_map(|line| {
+        let (key, path) = line.split_once("REG_SZ")?;
+        let key = key.trim().trim_matches(['{', '}']);
+        (normalize(path) == expected).then(|| Uuid::parse_str(key).ok().map(|id| id.to_string())).flatten()
     })
 }
 
@@ -120,8 +140,8 @@ fn find_engine_root(search_dir: &Path) -> Result<PathBuf> {
         let path = entry.path();
         if path.is_file()
             && (path.ends_with(EDITOR_RELATIVE_PATH)
-                || path.ends_with("Engine/Binaries/Win64/UE4Editor.exe")
-                || path.ends_with("Engine/Binaries/Linux/UE4Editor"))
+                || (cfg!(target_os = "windows") && path.ends_with("Engine/Binaries/Win64/UE4Editor.exe"))
+                || (!cfg!(target_os = "windows") && path.ends_with("Engine/Binaries/Linux/UE4Editor")))
         {
             // path é .../<raiz>/Engine/Binaries/<Plataforma>/UnrealEditor — sobe 4 níveis até a raiz.
             if let Some(root) = path
@@ -136,8 +156,8 @@ fn find_engine_root(search_dir: &Path) -> Result<PathBuf> {
     }
 
     Err(anyhow!(
-        "não encontrei nenhuma instalação da Unreal Engine dentro de {:?} (procurei por Engine/Binaries/Linux/UnrealEditor nas subpastas)",
-        search_dir
+        "não encontrei nenhuma instalação da Unreal Engine dentro de {:?} (procurei por {} nas subpastas)",
+        search_dir, EDITOR_RELATIVE_PATH
     ))
 }
 
@@ -218,6 +238,7 @@ pub fn sync_install_ini(engines: &[EngineInstall]) -> Result<()> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         for engine in engines {
             let is_versioned = engine.version.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false);
             if is_versioned {
@@ -225,13 +246,16 @@ pub fn sync_install_ini(engines: &[EngineInstall]) -> Result<()> {
                 if !short_ver.is_empty() {
                     let _ = Command::new("reg")
                         .args(&["add", "HKCU\\Software\\Epic Games\\Unreal Engine\\Builds", "/v", &short_ver, "/t", "REG_SZ", "/d", &engine.path, "/f"])
+                        .creation_flags(0x08000000)
                         .output();
                 }
             }
             if !engine.id.is_empty() {
-                let _ = Command::new("reg")
-                    .args(&["add", "HKCU\\Software\\Epic Games\\Unreal Engine\\Builds", "/v", &engine.id, "/t", "REG_SZ", "/d", &engine.path, "/f"])
-                    .output();
+                for id in [engine.id.clone(), format!("{{{}}}", engine.id.trim_matches(['{', '}']))] {
+                    let _ = Command::new("reg")
+                        .args(&["add", "HKCU\\Software\\Epic Games\\Unreal Engine\\Builds", "/v", &id, "/t", "REG_SZ", "/d", &engine.path, "/f"])
+                        .creation_flags(0x08000000).output();
+                }
             }
         }
     }

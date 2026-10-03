@@ -3,170 +3,98 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Unreal Launcher</title>
+  <title>ArcForge</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="arcforge.css" />
+  <link rel="icon" href="assets/arcforge-logo.png" />
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-mark">U</span>
-        <div class="brand-text">
-          <strong>Unreal Launcher</strong>
-          <small>Fuly Games</small>
+    <aside class="sidebar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <img class="brand-mark" src="assets/arcforge-logo.png" alt="" data-tauri-drag-region draggable="false" />
+        <div class="brand-text" data-tauri-drag-region>
+          <strong data-tauri-drag-region>ArcForge</strong>
+          <small data-tauri-drag-region>UNREAL ENGINE LAUNCHER</small>
         </div>
       </div>
 
-      <nav class="nav-group">
+      <nav class="nav-group" aria-label="Navegação principal">
         <button class="nav-item active" data-view="dashboard">
-          <span class="nav-icon">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/>
-            </svg>
-          </span>
+          <span class="nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#home" /></svg></span>
           Início
         </button>
         <button class="nav-item" data-view="engines">
-          <span class="nav-icon">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
-            </svg>
-          </span>
+          <span class="nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#layers" /></svg></span>
           Engines
         </button>
         <button class="nav-item" data-view="projects">
-          <span class="nav-icon">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/>
-            </svg>
-          </span>
+          <span class="nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#projects" /></svg></span>
           Projetos
         </button>
         <button class="nav-item" id="nav-btn-vault" data-view="vault">
-          <span class="nav-icon">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
-              <path fill-rule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd" />
-            </svg>
-          </span>
+          <span class="nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#grid" /></svg></span>
           Biblioteca
         </button>
         <button class="nav-item" id="nav-btn-downloads" data-view="downloads">
-          <span class="nav-icon">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-            </svg>
-          </span>
+          <span class="nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#download" /></svg></span>
           Downloads
         </button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#settings" /></svg></span> Configurações</button>
       </nav>
 
       <div class="sidebar-footer">
         <span class="sidebar-meta" id="sidebar-stats">0 engines • 0 projetos</span>
         <button class="sidebar-meta-btn" id="btn-check-updates" title="Clique para verificar atualizações">
-          <span>Unreal Launcher v0.1.2</span>
-          <span class="sidebar-update-icon">🔄</span>
+          <span>ArcForge v0.1.2</span>
+          <span class="sidebar-update-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg></span>
         </button>
+      </div>
+      <div class="window-controls" role="group" aria-label="Controles da janela">
+        <button id="window-minimize" class="window-control" aria-label="Minimizar" title="Minimizar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg></button>
+        <button id="window-maximize" class="window-control" aria-label="Maximizar" title="Maximizar"><svg viewBox="0 0 16 16" aria-hidden="true"><path id="window-maximize-icon" d="M3.5 3.5h9v9h-9z" /></svg></button>
+        <button id="window-close" class="window-control window-close" aria-label="Fechar" title="Fechar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 3.5 9 9m0-9-9 9" /></svg></button>
       </div>
     </aside>
 
     <div class="main-wrapper">
-      <!-- TOPBAR INTEGRADA (REFERÊNCIA VISUAL) -->
-      <header class="top-bar">
-        <!-- Seção do Usuário Epic Games (Perfil) -->
-        <div class="user-profile-section">
-          <button class="btn-icon-round" id="btn-notifications" title="Notificações & Atualizações">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-              <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
-            </svg>
-          </button>
-
-          <div class="user-pill" id="user-pill-box">
-            <div class="user-avatar" id="user-avatar">?</div>
-            <span class="user-name-text" id="user-display-name">Epic: Conectando…</span>
-            <button id="btn-epic-login" class="user-btn-action" hidden>Entrar</button>
-            <button id="btn-epic-logout" class="user-btn-action" hidden>Sair</button>
-          </div>
-        </div>
-
-        <!-- Botão Pill de Live Update quando houver atualização disponível -->
-        <button class="btn-update-pill" id="btn-update-available" hidden title="Nova versão disponível! Clique para ver detalhes e atualizar">
-          <span class="update-pulse-dot"></span>
-          <span id="btn-update-pill-text">🚀 Atualização disponível!</span>
-        </button>
-
-        <!-- Widget de Download Ativo na Topbar (igual à referência) -->
-        <div class="top-download-container" id="top-download-container">
-          <!-- Estado Ocioso: Botão elegante para abrir catálogo -->
-          <button class="btn-topbar-download" id="btn-open-epic-downloader">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15">
-              <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-            </svg>
-            <span>Baixar Unreal Engine ⤓</span>
-          </button>
-
-          <!-- Estado Ativo (Pill Vermelha idêntica à referência visual) -->
-          <div class="download-pill-active" id="top-download-active" hidden>
-            <div class="dl-circle-icon">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-              </svg>
-            </div>
-            <div class="dl-details">
-              <span class="dl-label-title" id="top-dl-title">Baixando Unreal Engine…</span>
-              <div class="dl-mini-track">
-                <div class="dl-mini-fill" id="top-dl-bar" style="width: 0%"></div>
-              </div>
-              <span class="dl-label-sub" id="top-dl-sub">Iniciando…</span>
-            </div>
-            <span class="dl-percent-badge" id="top-dl-percent">0%</span>
-          </div>
-        </div>
-      </header>
-
       <main class="content-area">
         <!-- VIEW: DASHBOARD (INÍCIO COM A ESTRUTURA EXATA DA IMAGEM DE REFERÊNCIA) -->
         <section id="view-dashboard" class="view active">
-          <!-- SEÇÃO SUPERIOR: CARROSSEL DE ENGINES (ESTILO "SERVIDOR" DA REFERÊNCIA) -->
-          <div class="engine-horizontal-container">
-            <div class="section-header">
-              <div class="section-title-wrap">
-                <h2>Instalações da Engine</h2>
-                <p>Versões prontas para uso no seu sistema Linux.</p>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-ghost btn-small" id="btn-add-engine">+ Registrar pasta</button>
-              </div>
+          <div class="dashboard-intro">
+            <div class="hero-brand">
+              <img src="assets/arcforge-logo.png" alt="Ícone do ArcForge" />
+              <div><strong>ARCFORGE</strong><span>SEU UNIVERSO. SUA PRÓXIMA CRIAÇÃO.</span></div>
             </div>
-
-            <div id="dashboard-engine-carousel" class="engine-carousel"></div>
-            <div id="dashboard-engine-empty" class="empty-state" hidden>
-              <p><strong>Nenhuma engine registrada ainda.</strong></p>
-              <p>Clique em <em>"Baixar Unreal Engine ⤓"</em> na barra superior ou aponte para uma pasta extraída.</p>
+            <p class="eyebrow"><span></span> BEM-VINDO AO SEU WORKSPACE</p>
+            <h1>Seu próximo mundo<br />começa aqui<span>.</span></h1>
+            <p class="hero-description">Suas engines, projetos e ideias em um só lugar.<br />Escolha um projeto e deixe o ArcForge preparar tudo para você.</p>
+            <div class="hero-actions">
+              <button class="btn btn-primary" id="btn-hero-create-project"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Criar projeto</button>
+              <button class="btn btn-ghost" id="btn-hero-view-projects">Explorar projetos <span aria-hidden="true"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#external" /></svg></span></button>
             </div>
+            <div class="hero-build-note"><span class="status-indicator-dot"></span> Compilação C++ automática antes de iniciar</div>
           </div>
-
           <!-- SEÇÃO INFERIOR: CARDS HERO DE PROJETOS (ESTILO "NOTÍCIAS" DA REFERÊNCIA) -->
           <div class="projects-section-container">
             <div class="section-header">
               <div class="section-title-wrap">
-                <h2>Projetos Recentes</h2>
-                <p>Seus projetos da Unreal Engine encontrados nas pastas monitoradas.</p>
+                <h2>Seus projetos</h2>
+                <p>Prontos para o próximo passo.</p>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button class="btn btn-ghost btn-small" id="btn-rescan">↻ Reescanear</button>
-                <button class="btn btn-ghost btn-small" id="btn-add-project-dir">+ Adicionar pasta</button>
-                <button class="btn btn-primary btn-small" id="btn-dash-create-project">⚡ Criar Projeto</button>
+                <button class="btn btn-ghost btn-small" id="btn-rescan" title="Atualizar projetos" aria-label="Atualizar projetos"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg></button>
+                <button class="btn btn-primary btn-small" id="btn-dash-create-project" title="Criar projeto">Criar</button>
               </div>
             </div>
 
-            <div id="dashboard-watched-dirs" class="chip-row"></div>
             <div id="dashboard-project-list" class="project-hero-list"></div>
             <div id="dashboard-project-empty" class="empty-state" hidden>
               <p><strong>Nenhum projeto encontrado.</strong></p>
-              <p>Adicione uma pasta onde você guarda seus projetos Unreal (ex: <code>~/UnrealProjects</code>) ou crie um novo agora.</p>
-              <button class="btn btn-primary btn-small" id="btn-dash-empty-create-project" style="margin-top: 10px;">⚡ Criar Novo Projeto</button>
+              <p>Registre sua pasta de projetos em Configurações ou crie um novo projeto agora.</p>
+              <button class="btn btn-primary btn-small" id="btn-dash-empty-create-project" style="margin-top: 10px;"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Criar Novo Projeto</button>
             </div>
+            <button class="dashboard-all-projects" id="btn-dashboard-all-projects">Ver todos os projetos <span aria-hidden="true"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#external" /></svg></span></button>
           </div>
         </section>
 
@@ -178,7 +106,13 @@
               <p>Gerencie todas as versões instaladas no seu computador.</p>
             </div>
           </div>
-          <div id="engine-list" class="card-grid"></div>
+          <div id="engine-list" class="card-grid">
+            <button class="engine-card engine-download-card" id="btn-open-epic-downloader" type="button">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M3 14v3h14v-3" /></svg>
+              <span>Baixar Unreal Engine</span>
+              <small>Instale uma nova versão pela Epic Games</small>
+            </button>
+          </div>
           <div id="engine-empty" class="empty-state" hidden>
             <p>Nenhuma engine registrada.</p>
           </div>
@@ -192,23 +126,21 @@
               <p>Lista de todos os projetos <code>.uproject</code> monitorados.</p>
             </div>
             <div style="display: flex; gap: 8px;">
-              <button class="btn btn-ghost btn-small" id="btn-rescan-projects-tab">↻ Atualizar</button>
-              <button class="btn btn-ghost btn-small" id="btn-add-folder-projects-tab">+ Adicionar pasta</button>
-              <button class="btn btn-primary btn-small" id="btn-create-project-trigger">⚡ Criar Projeto</button>
+              <button class="btn btn-ghost btn-small" id="btn-rescan-projects-tab"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg> Atualizar</button>
+              <button class="btn btn-primary btn-small" id="btn-create-project-trigger"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Criar Projeto</button>
             </div>
           </div>
           <div id="gpu-compatibility-banner" class="gpu-compat-banner" hidden>
-            <div class="gpu-compat-icon">🛡️</div>
+            <div class="gpu-compat-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#shield" /></svg></div>
             <div class="gpu-compat-text">
               <strong id="gpu-compat-title">Modo Estável Ativado (OpenGL + SM5/SM6)</strong>
               <p id="gpu-compat-desc">O editor é iniciado com <code>-opengl</code> para evitar travamentos ao fechar janelas dock no Linux. SM5 e SM6 estão configurados no projeto sem avisos da engine.</p>
             </div>
           </div>
-          <div id="watched-dirs" class="chip-row"></div>
           <div id="project-list" class="project-hero-list"></div>
           <div id="project-empty" class="empty-state" hidden>
             <p>Nenhum projeto encontrado.</p>
-            <button class="btn btn-primary btn-small" id="btn-projects-empty-create" style="margin-top: 10px;">⚡ Criar Novo Projeto</button>
+            <button class="btn btn-primary btn-small" id="btn-projects-empty-create" style="margin-top: 10px;"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Criar Novo Projeto</button>
           </div>
         </section>
 
@@ -220,16 +152,14 @@
               <p>Plugins, projetos e pacotes adquiridos no Unreal Marketplace / Fab vinculados à sua conta Epic Games.</p>
             </div>
             <div style="display: flex; gap: 8px;">
-              <button class="btn btn-ghost btn-small" id="btn-refresh-vault">↻ Sincronizar</button>
+              <button class="btn btn-ghost btn-small" id="btn-refresh-vault"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg> Sincronizar</button>
             </div>
           </div>
 
           <!-- Barra de busca e filtros do Vault -->
           <div class="vault-toolbar">
             <div class="search-box" style="flex: 1; max-width: 480px;">
-              <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
-              </svg>
+              <svg class="ui-icon search-icon" aria-hidden="true"><use href="icons.svg#search" /></svg>
               <input type="text" id="vault-search-input" class="catalog-search-input" placeholder="Buscar plugin, projeto ou asset..." />
             </div>
 
@@ -334,7 +264,7 @@
                     <span>⏹ Cancelar</span>
                   </button>
                   <button class="btn-steam-action" id="btn-steam-folder" title="Abrir pasta de instalação">
-                    <span>📁 Pasta</span>
+                    <span><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#folder" /></svg> Pasta</span>
                   </button>
                   <div class="steam-card-status-pill" id="steam-status-badge">
                     <span class="status-pulse-dot"></span>
@@ -354,7 +284,7 @@
                   <span id="steam-card-bytes" class="steam-stat-sub">0.00 GB / 0.00 GB</span>
                 </div>
                 <div class="steam-stat-right">
-                  <span id="steam-card-speed" class="steam-speed-text">⚡ 0.0 MB/s</span>
+                  <span id="steam-card-speed" class="steam-speed-text">0.0 MB/s</span>
                   <span id="steam-card-eta" class="steam-stat-sub">Calculando tempo restante…</span>
                 </div>
               </div>
@@ -365,11 +295,84 @@
           <div id="steam-empty-queue" class="steam-empty-queue">
             <p>There are no downloads in the queue</p>
             <button class="btn btn-primary btn-small" id="btn-steam-browse-catalog" style="margin-top: 10px;">
-              Baixar Unreal Engine ⤓
+              Baixar Unreal Engine <svg class="ui-icon" aria-hidden="true"><use href="icons.svg#download" /></svg>
             </button>
           </div>
         </section>
+        <section id="view-settings" class="view">
+          <div class="section-header"><div class="section-title-wrap">
+            <h1>Configurações</h1>
+            <p>Prepare seu workspace e escolha as pastas que o ArcForge acompanha.</p>
+          </div></div>
+          <div class="settings-grid">
+            <article class="settings-panel">
+              <span class="settings-eyebrow">UNREAL ENGINE</span>
+              <h2>Registre sua engine</h2>
+              <p>Selecione uma instalação existente ou extraia uma engine baixada em ZIP.</p>
+              <button class="btn btn-primary" id="btn-add-engine"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Registrar engine</button>
+            </article>
+            <article class="settings-panel">
+              <span class="settings-eyebrow">PROJETOS</span>
+              <h2>Pastas monitoradas</h2>
+              <p>O ArcForge procura seus projetos Unreal nestas pastas. Remover uma pasta daqui apenas interrompe seu monitoramento.</p>
+              <button class="btn btn-primary" id="btn-add-project-dir"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Adicionar pasta de projetos</button>
+              <div id="watched-dirs" class="chip-row settings-paths"></div>
+              <p class="settings-note">Os projetos encontrados ficam disponíveis na aba Projetos.</p>
+            </article>
+          </div>
+        </section>
       </main>
+      <section class="account-bar" aria-label="Conta, notificações e transferências">
+        <!-- Seção do Usuário Epic Games (Perfil) -->
+        <div class="user-profile-section">
+          <button class="btn-icon-round" id="btn-notifications" title="Notificações e atualizações" aria-label="Notificações e atualizações"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#bell" /></svg>
+            <span>Notificações</span>
+          </button>
+
+          <div class="user-pill" id="user-pill-box">
+            <div class="user-avatar" id="user-avatar">?</div>
+            <div class="account-identity"><small>CONTA EPIC GAMES</small><span class="user-name-text" id="user-display-name">Epic: Conectando…</span></div>
+            <button id="btn-epic-login" class="user-btn-action" hidden>Entrar</button>
+            <button id="btn-epic-logout" class="user-btn-action" hidden>Sair</button>
+          </div>
+        </div>
+
+        <!-- Botão Pill de Live Update quando houver atualização disponível -->
+        <button class="btn-update-pill" id="btn-update-available" hidden title="Nova versão disponível! Clique para ver detalhes e atualizar">
+          <span class="update-pulse-dot"></span>
+          <span id="btn-update-pill-text">Atualização disponível!</span>
+        </button>
+
+        <!-- Widget de Download Ativo na Topbar (igual à referência) -->
+        <div class="top-download-container" id="top-download-container">
+          <!-- Estado Ocioso: Botão elegante para abrir catálogo -->
+
+
+          <!-- Estado Ativo (Pill Vermelha idêntica à referência visual) -->
+          <div class="download-pill-active" id="top-download-active" hidden>
+            <div class="dl-circle-icon">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </div>
+            <div class="dl-details">
+              <span class="dl-label-title" id="top-dl-title">Baixando Unreal Engine…</span>
+              <div class="dl-mini-track">
+                <div class="dl-mini-fill" id="top-dl-bar" style="width: 0%"></div>
+              </div>
+              <span class="dl-label-sub" id="top-dl-sub">Iniciando…</span>
+            </div>
+            <span class="dl-percent-badge" id="top-dl-percent">0%</span>
+          </div>
+        </div>
+      </section>
+
+
+      <footer class="workspace-footer">
+        <span><i></i> Workspace local</span>
+        <span id="workspace-stats">0 engines · 0 projetos</span>
+        <span>ARCFORGE <span class="footer-version">/ v0.1.2</span></span>
+      </footer>
     </div>
   </div>
 
@@ -396,15 +399,13 @@
           <p class="modal-subtitle">Compilações oficiais da Epic Games para Linux vinculadas à sua conta.</p>
         </div>
         <button class="btn btn-ghost btn-small" id="btn-refresh-catalog" title="Recarregar catálogo de versões">
-          ↻ Atualizar
+          <svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg> Atualizar
         </button>
       </div>
 
       <div class="catalog-toolbar">
         <div class="search-box">
-          <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
-          </svg>
+          <svg class="ui-icon search-icon" aria-hidden="true"><use href="icons.svg#search" /></svg>
           <input type="text" id="engine-search-filter" class="catalog-search-input" placeholder="Buscar versão (ex: 5.5, 5.4, 4.27)..." />
         </div>
         <div class="filter-tabs">
@@ -453,7 +454,7 @@
             Gere um projeto pronto instantaneamente, sem precisar abrir o editor.
           </p>
         </div>
-        <button class="btn-icon-ghost" id="btn-close-create-proj-modal" type="button" title="Fechar" style="font-size: 18px; border: none; background: transparent; color: var(--text-dim); cursor: pointer;">✕</button>
+        <button class="btn-icon-ghost" id="btn-close-create-proj-modal" type="button" title="Fechar" style="font-size: 18px; border: none; background: transparent; color: var(--text-dim); cursor: pointer;"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#close" /></svg></button>
       </div>
 
       <form id="form-create-project" style="display: flex; flex-direction: column; gap: 14px; margin-top: 16px;">
@@ -480,7 +481,7 @@
           <div class="proj-type-selector">
             <label class="proj-type-card active" id="card-type-bp">
               <input type="radio" name="proj-type" value="blueprint" checked />
-              <div class="proj-type-icon">🔷</div>
+              <div class="proj-type-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#grid" /></svg></div>
               <div class="proj-type-info">
                 <strong>Blueprint</strong>
                 <span>Prototipagem rápida e lógica visual sem compilação C++</span>
@@ -489,7 +490,7 @@
 
             <label class="proj-type-card" id="card-type-cpp">
               <input type="radio" name="proj-type" value="cpp" />
-              <div class="proj-type-icon">⚡</div>
+              <div class="proj-type-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#code" /></svg></div>
               <div class="proj-type-info">
                 <strong>C++</strong>
                 <span>Código nativo com Source/, Target.cs e suporte a IDEs</span>
@@ -502,11 +503,11 @@
         <div class="form-group">
           <label class="form-label" for="select-new-proj-template">Template Inicial</label>
           <select id="select-new-proj-template" class="select-dark" style="width: 100%;">
-            <option value="blank">📄 Em Branco (Blank) — Projeto limpo sem mecânicas prévias</option>
-            <option value="third_person">🏃 Terceira Pessoa (Third Person) — Personagem e câmera pronta</option>
-            <option value="first_person">🎯 Primeira Pessoa (First Person) — Controle FPS básico</option>
-            <option value="top_down">🕹️ Top-Down — Movimentação estilo Diablo / RTS</option>
-            <option value="vehicle">🚗 Veículo Avançado (Vehicle) — Física de direção</option>
+            <option value="blank">Em Branco (Blank) — Projeto limpo sem mecânicas prévias</option>
+            <option value="third_person">Terceira Pessoa (Third Person) — Personagem e câmera pronta</option>
+            <option value="first_person">Primeira Pessoa (First Person) — Controle FPS básico</option>
+            <option value="top_down">Top-Down — Movimentação estilo Diablo / RTS</option>
+            <option value="vehicle">Veículo Avançado (Vehicle) — Física de direção</option>
           </select>
         </div>
 
@@ -525,9 +526,9 @@
             <span class="label-hint" id="gpu-hint-rhi"></span>
           </label>
           <select id="select-new-proj-rhi" class="select-dark" style="width: 100%;">
-            <option value="auto">⚡ OpenGL + SM5/SM6 (Recomendado — Sem crash ao fechar abas/dock)</option>
-            <option value="sm5">🛡️ SM5 (Shader Model 5 com OpenGL)</option>
-            <option value="sm6">🚀 SM6 (Shader Model 6 com OpenGL)</option>
+            <option value="auto">OpenGL + SM5/SM6 (Recomendado — Sem crash ao fechar abas/dock)</option>
+            <option value="sm5">SM5 (Shader Model 5 com OpenGL)</option>
+            <option value="sm6">SM6 (Shader Model 6 com OpenGL)</option>
           </select>
         </div>
 
@@ -549,7 +550,7 @@
         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
           <button type="button" class="btn btn-ghost" id="btn-cancel-create-project">Cancelar</button>
           <button type="submit" class="btn btn-primary" id="btn-submit-create-project">
-            <span>⚡ Criar Projeto</span>
+            <span><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#plus" /></svg> Criar Projeto</span>
           </button>
         </div>
       </form>
@@ -570,7 +571,7 @@
 
       <div class="modal-choices">
         <button class="choice-card" id="btn-choice-remove-only" type="button" style="text-align: left; padding: 12px 14px; display: flex; align-items: center; gap: 12px; cursor: pointer;">
-          <span style="font-size: 22px;">📋</span>
+          <span style="font-size: 22px;"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#clipboard" /></svg></span>
           <div>
             <strong style="display: block; font-size: 13px; color: #fff;">Apenas remover da lista</strong>
             <span style="font-size: 11.5px; color: var(--text-dim); display: block; margin-top: 2px;">Mantém todos os arquivos no seu computador. O projeto apenas deixará de aparecer no launcher.</span>
@@ -578,7 +579,7 @@
         </button>
 
         <button class="choice-card choice-danger" id="btn-choice-delete-disk" type="button" style="text-align: left; padding: 12px 14px; display: flex; align-items: center; gap: 12px; cursor: pointer;">
-          <span style="font-size: 22px;">🗑️</span>
+          <span style="font-size: 22px;"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#bin" /></svg></span>
           <div>
             <strong style="display: block; font-size: 13px; color: #f87171;">Excluir permanentemente da máquina</strong>
             <span style="font-size: 11.5px; color: var(--text-dim); display: block; margin-top: 2px;">Apaga toda a pasta do projeto e seus arquivos do disco. Esta ação não poderá ser desfeita!</span>
@@ -618,7 +619,7 @@
         <div class="proj-type-selector" style="grid-template-columns: 1fr 1fr 1fr;">
           <label class="proj-type-card active" id="card-vault-act-project">
             <input type="radio" name="vault-act" value="project" checked />
-            <div class="proj-type-icon">📁</div>
+            <div class="proj-type-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#folder" /></svg></div>
             <div class="proj-type-info">
               <strong>No Projeto</strong>
               <span>Pasta Plugins/</span>
@@ -634,7 +635,7 @@
           </label>
           <label class="proj-type-card" id="card-vault-act-new-proj">
             <input type="radio" name="vault-act" value="new_project" />
-            <div class="proj-type-icon">⚡</div>
+            <div class="proj-type-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#code" /></svg></div>
             <div class="proj-type-info">
               <strong>Criar Projeto</strong>
               <span>Novo projeto</span>
@@ -718,10 +719,10 @@
           </svg>
         </div>
         <div>
-          <h3 class="modal-title">Atualização do Unreal Launcher</h3>
+          <h3 class="modal-title">Atualização do ArcForge</h3>
           <p class="modal-subtitle" id="update-modal-subtitle">Uma nova versão está disponível para download.</p>
         </div>
-        <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
+        <button class="modal-close-btn" id="btn-close-update-modal"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#close" /></svg></button>
       </div>
 
       <div class="update-version-banner">
@@ -764,7 +765,7 @@
 
       <div class="modal-actions update-modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-remind-later-update">Lembrar Mais Tarde</button>
-        <button type="button" class="btn btn-secondary" id="btn-view-github-release">Ver no GitHub ↗</button>
+        <button type="button" class="btn btn-secondary" id="btn-view-github-release">Ver no GitHub <svg class="ui-icon" aria-hidden="true"><use href="icons.svg#external" /></svg></button>
         <button type="button" class="btn btn-primary" id="btn-start-live-update">
           <span>Atualizar Agora</span>
         </button>
@@ -772,8 +773,23 @@
     </div>
   </div>
 
+  <div id="project-build-modal" class="modal-overlay" hidden>
+    <div class="modal project-build-dialog" role="dialog" aria-modal="true" aria-labelledby="project-build-title">
+      <h2 id="project-build-title">Compilação do projeto</h2>
+      <p id="project-build-status" role="status" aria-live="polite"></p>
+      <progress id="project-build-progress" max="100" aria-label="Progresso da compilação"></progress>
+      <p class="modal-subtitle">O projeto C++ é compilado antes de abrir o editor. Aguarde a conclusão.</p>
+      <pre id="project-build-log" tabindex="0" aria-label="Log da compilação"></pre>
+      <p id="project-build-log-path"></p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-show-build-log" disabled>Mostrar arquivo de log</button>
+        <button class="btn btn-primary" id="btn-close-project-build" disabled>Fechar</button>
+      </div>
+    </div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
+  <script type="module" src="window-controls.js"></script>
   <script type="module" src="main.js"></script>
 </body>
 </html>

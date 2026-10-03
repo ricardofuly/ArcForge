@@ -6,10 +6,18 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
     "shell:allow-open",
     "dialog:default",
     "dialog:allow-open",
     "opener:default",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "com.epicgames.launcher://apps/ue" }]
+    }
   ]
 }

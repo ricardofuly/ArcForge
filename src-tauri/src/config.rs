@@ -26,6 +26,8 @@ fn default_auto_check_updates() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub engines: Vec<EngineInstall>,
+    #[serde(default)]
+    pub excluded_engine_paths: Vec<String>,
     pub project_dirs: Vec<String>,
     #[serde(default)]
     pub excluded_projects: Vec<String>,
@@ -48,6 +50,7 @@ impl Default for AppConfig {
         }
         Self {
             engines: Vec::new(),
+            excluded_engine_paths: Vec::new(),
             project_dirs,
             excluded_projects: Vec::new(),
             rhi_mode: default_rhi_mode(),
