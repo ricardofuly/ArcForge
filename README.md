@@ -1,6 +1,6 @@
 # ArcForge
 
-Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.2**.
+Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.3**.
 
 [Baixar a release](https://github.com/ricardofuly/ArcForge/releases/latest) · [Segurança e assinaturas](SECURITY_UPDATES.md) · [Revisão de segurança](SECURITY_REVIEW.md)
 
@@ -78,7 +78,7 @@ O atualizador aceita apenas pacotes da última release oficial, via HTTPS, com a
 Com ambos os arquivos na mesma pasta e a chave pública obtida deste repositório:
 
 ```powershell
-minisign -V -p arcforge.pub -m ArcForge_0.1.2_x64-setup.exe
+minisign -V -p arcforge.pub -m ArcForge_0.1.3_x64-setup.exe
 ```
 
 Minisign autentica o pacote para o atualizador. Não substitui Authenticode: os instaladores ainda não possuem certificado de publicador Windows. Aplicativos antigos precisam receber este instalador para passar a usar a nova verificação.
