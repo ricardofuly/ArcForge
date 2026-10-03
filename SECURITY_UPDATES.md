@@ -12,7 +12,7 @@ O ArcForge só instala automaticamente um pacote da última release oficial, via
 Para assinar manualmente um pacote, execute:
 
 ```powershell
-minisign -S -s C:\CaminhoSeguro\minisign.key -m ArcForge_0.1.2_x64-setup.exe -t "ArcForge version=0.1.2 asset=ArcForge_0.1.2_x64-setup.exe"
+minisign -S -s C:\CaminhoSeguro\minisign.key -m ArcForge_0.1.3_x64-setup.exe -t "ArcForge version=0.1.3 asset=ArcForge_0.1.3_x64-setup.exe"
 ```
 
 Publique o arquivo `.minisig` junto ao pacote, na mesma release. A versão no comentário deve ser a tag sem o prefixo `v`, e o nome deve coincidir exatamente com o asset. Pacotes antigos renomeados não passam nessa validação. Gere um instalador novo com a chave pública incorporada para iniciar a cadeia de confiança; esta correção não altera aplicativos já instalados/distribuídos.
@@ -29,7 +29,7 @@ Os testes de regressão cobrem origens de download, nonce, nomes reservados/trav
 
 Não há garantia de segurança para projetos/plugins Unreal não confiáveis: o UnrealBuildTool e o Editor executam código desses projetos. A validação de caminhos não protege contra todos os ataques de um processo já controlando a mesma conta do sistema.
 
-## Chave da versão 0.1.2
+## Chave da versão 0.1.3
 
 A chave pública de verificação está em `arcforge.pub` e na variável do GitHub Actions. A chave privada está cadastrada como secret do repositório por autorização do responsável. A cópia local foi protegida com DPAPI em `%USERPROFILE%\.minisign\arcforge.key.dpapi`; ela depende desta conta Windows e precisa de backup seguro antes de reinstalar ou trocar o computador. Não publique esse arquivo nem a chave privada.
 
