@@ -58,6 +58,7 @@ pub struct VaultItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultCache {
+    pub account_id: String,
     pub last_updated: u64,
     pub items: Vec<VaultItem>,
 }
@@ -85,26 +86,28 @@ fn vault_cache_path() -> Result<PathBuf> {
     Ok(dir.join("vault_cache.json"))
 }
 
-pub fn load_cached_vault() -> Option<Vec<VaultItem>> {
+fn load_cached_vault(account_id: &str) -> Option<Vec<VaultItem>> {
     let path = vault_cache_path().ok()?;
-    load_cached_vault_from(&path)
+    load_cached_vault_from(&path, account_id)
 }
 
-pub fn load_cached_vault_from(path: &Path) -> Option<Vec<VaultItem>> {
+fn load_cached_vault_from(path: &Path, account_id: &str) -> Option<Vec<VaultItem>> {
+    if account_id.is_empty() { return None; }
     if !path.exists() {
         return None;
     }
     let data = fs::read_to_string(path).ok()?;
     let cache: VaultCache = serde_json::from_str(&data).ok()?;
-    Some(cache.items)
+    (cache.account_id == account_id).then_some(cache.items)
 }
 
-pub fn save_cached_vault(items: &[VaultItem]) -> Result<()> {
+fn save_cached_vault(account_id: &str, items: &[VaultItem]) -> Result<()> {
     let path = vault_cache_path()?;
-    save_cached_vault_to(&path, items)
+    save_cached_vault_to(&path, account_id, items)
 }
 
-pub fn save_cached_vault_to(path: &Path, items: &[VaultItem]) -> Result<()> {
+fn save_cached_vault_to(path: &Path, account_id: &str, items: &[VaultItem]) -> Result<()> {
+    if account_id.is_empty() { return Err(anyhow!("Conta Epic ausente")); }
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent)?;
@@ -115,6 +118,7 @@ pub fn save_cached_vault_to(path: &Path, items: &[VaultItem]) -> Result<()> {
         .unwrap_or_default()
         .as_secs();
     let cache = VaultCache {
+        account_id: account_id.to_string(),
         last_updated: now,
         items: items.to_vec(),
     };
@@ -131,6 +135,15 @@ pub fn save_cached_vault_to(path: &Path, items: &[VaultItem]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn clear_cached_vault() -> Result<()> {
+    let path = vault_cache_path()?;
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,8 +197,13 @@ struct CatalogItemDetails {
 }
 
 /// Consulta o catálogo da Epic Games para os itens do vault Unreal pertencentes ao usuário.
+#[cfg(test)]
 pub async fn fetch_user_vault_items() -> Result<Vec<VaultItem>> {
     let access_token = crate::epic::get_valid_access_token().await?;
+    fetch_vault_with_token(&access_token).await
+}
+
+async fn fetch_vault_with_token(access_token: &str) -> Result<Vec<VaultItem>> {
     let client = crate::epic::create_client()?;
 
     // 1. Obter todos os ativos da conta do usuário
@@ -227,7 +245,7 @@ pub async fn fetch_user_vault_items() -> Result<Vec<VaultItem>> {
     let batch_results: Vec<Result<Vec<VaultItem>>> = stream::iter(chunks)
         .map(|batch| {
             let client = client.clone();
-            let access_token = access_token.clone();
+            let access_token = access_token;
             async move {
                 let query = batch
                     .iter()
@@ -353,7 +371,6 @@ pub async fn fetch_user_vault_items() -> Result<Vec<VaultItem>> {
 
     if !all_vault_items.is_empty() {
         all_vault_items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-        let _ = save_cached_vault(&all_vault_items);
     }
 
     Ok(all_vault_items)
@@ -362,25 +379,28 @@ pub async fn fetch_user_vault_items() -> Result<Vec<VaultItem>> {
 /// Retorna a lista de itens do vault. Se force_refresh for falso e houver cache, responde instantaneamente.
 /// Em caso de erro de rede ou de API, recorre ao cache local se este existir.
 pub async fn list_vault_items(force_refresh: bool) -> Result<Vec<VaultItem>> {
+    // Authenticate before any cache read; legacy caches without an owner are ignored.
+    let session = crate::epic::get_valid_session().await?;
     if !force_refresh {
-        if let Some(cached) = load_cached_vault() {
-            if !cached.is_empty() {
-                return Ok(cached);
-            }
+        if let Some(cached) = crate::epic::with_current_account(&session.account_id,
+            || Ok(load_cached_vault(&session.account_id)))? {
+            return Ok(cached);
         }
     }
 
-    match fetch_user_vault_items().await {
-        Ok(items) => Ok(items),
+    let result = fetch_vault_with_token(&session.access_token).await;
+    crate::epic::with_current_account(&session.account_id, || match result {
+        Ok(items) => {
+            let _ = save_cached_vault(&session.account_id, &items);
+            Ok(items)
+        },
         Err(e) => {
-            if let Some(cached) = load_cached_vault() {
-                if !cached.is_empty() {
-                    return Ok(cached);
-                }
+            if let Some(cached) = load_cached_vault(&session.account_id) {
+                return Ok(cached);
             }
             Err(e)
         }
-    }
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -831,12 +851,22 @@ mod tests {
             namespace: "ue".to_string(),
         };
 
-        assert!(save_cached_vault_to(&test_cache_path, &[item.clone()]).is_ok());
-        let loaded = load_cached_vault_from(&test_cache_path).expect("deve carregar cache");
+        assert!(save_cached_vault_to(&test_cache_path, "account-a", &[item.clone()]).is_ok());
+        let loaded = load_cached_vault_from(&test_cache_path, "account-a").expect("deve carregar cache");
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].title, "Test Plugin");
         assert_eq!(loaded[0].releases.len(), 1);
         assert_eq!(loaded[0].releases[0].app_id, "TestPlugin_5.5");
+
+        assert!(load_cached_vault_from(&test_cache_path, "account-b").is_none());
+        assert!(load_cached_vault_from(&test_cache_path, "").is_none());
+        // Old unscoped caches must never be attributed to whichever account logs in next.
+        let mut legacy: serde_json::Value = serde_json::from_str(&fs::read_to_string(&test_cache_path).unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("account_id");
+        fs::write(&test_cache_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(load_cached_vault_from(&test_cache_path, "account-a").is_none());
+        assert!(save_cached_vault_to(&test_cache_path, "account-a", &[]).is_ok());
+        assert!(load_cached_vault_from(&test_cache_path, "account-a").unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }

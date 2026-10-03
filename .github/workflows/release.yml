@@ -63,7 +63,7 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Test frontend build flow
-        run: node --test tests/frontend-build.test.cjs tests/security-ui.test.cjs
+        run: node --test tests/frontend-build.test.cjs tests/security-ui.test.cjs tests/vault-auth.test.cjs
 
       - name: Test signed release publication gate
         run: python -m unittest discover -s tests -p test_security_release.py

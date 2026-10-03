@@ -217,11 +217,7 @@ function switchView(viewName) {
   if (viewName === "downloads") {
     renderSteamGraph();
   } else if (viewName === "vault") {
-    if (!vaultLoaded) {
-      refreshVault(false);
-    } else {
-      renderVaultGrid();
-    }
+    refreshVault(false);
   }
 }
 
@@ -970,6 +966,7 @@ document.getElementById("form-create-project")?.addEventListener("submit", async
 
 // ---------- Conta Epic Games (Topbar Perfil) ----------
 async function refreshEpicStatus() {
+  const generation = vaultGeneration;
   const userDisplayName = document.getElementById("user-display-name");
   const userAvatar = document.getElementById("user-avatar");
   const loginBtn = document.getElementById("btn-epic-login");
@@ -977,6 +974,8 @@ async function refreshEpicStatus() {
 
   try {
     const status = await invoke("epic_status");
+    if (generation !== vaultGeneration) return null;
+    setVaultAccount(status.logged_in ? status.account_id : null);
 
     if (status.logged_in) {
       const name = status.username || "Conectado";
@@ -990,11 +989,15 @@ async function refreshEpicStatus() {
       loginBtn.hidden = false;
       logoutBtn.hidden = true;
     }
+    return status;
   } catch (err) {
+    if (generation !== vaultGeneration) return null;
+    setVaultAccount(null);
     userDisplayName.textContent = "Não conectado";
     userAvatar.textContent = "?";
     loginBtn.hidden = false;
     logoutBtn.hidden = true;
+    return null;
   }
 }
 
@@ -1033,6 +1036,7 @@ document.getElementById("btn-open-epic-login").addEventListener("click", async (
 });
 
 document.getElementById("btn-epic-logout").addEventListener("click", async () => {
+  setVaultAccount(null, true);
   try {
     await invoke("epic_logout");
     showToast("Você saiu da conta Epic.");
@@ -1040,9 +1044,6 @@ document.getElementById("btn-epic-logout").addEventListener("click", async () =>
     showToast(String(err), true);
   } finally {
     await refreshEpicStatus();
-    vaultItems = [];
-    vaultFilteredItems = [];
-    vaultLoaded = false;
     renderVaultGrid();
   }
 });
@@ -1781,10 +1782,35 @@ let selectedVaultItem = null;
 let isVaultDownloading = false;
 
 let isVaultRefreshing = false;
+let vaultAccountId = null;
+let vaultGeneration = 0;
+
+function setVaultAccount(accountId, forceReset = false) {
+  accountId = accountId || null;
+  if (!forceReset && accountId === vaultAccountId) return;
+  vaultAccountId = accountId;
+  vaultGeneration++;
+  vaultItems = [];
+  vaultFilteredItems = [];
+  vaultLoaded = false;
+  isVaultRefreshing = false;
+  selectedVaultItem = null;
+  const modal = document.getElementById("vault-action-modal");
+  if (modal) modal.hidden = true;
+  const loading = document.getElementById("vault-loading");
+  if (loading) loading.hidden = true;
+  renderVaultGrid();
+}
 
 async function refreshVault(forceRefresh = false) {
+  const status = await refreshEpicStatus();
+  if (!status?.logged_in || !vaultAccountId) {
+    renderVaultGrid();
+    return;
+  }
   if (isVaultRefreshing) return;
   isVaultRefreshing = true;
+  const generation = vaultGeneration;
 
   const loading = document.getElementById("vault-loading");
   const empty = document.getElementById("vault-empty");
@@ -1799,6 +1825,7 @@ async function refreshVault(forceRefresh = false) {
 
   try {
     const items = await invoke("list_vault_items", { forceRefresh });
+    if (generation !== vaultGeneration) return;
     vaultItems = items || [];
     vaultLoaded = true;
     if (loading) loading.hidden = true;
@@ -1807,9 +1834,15 @@ async function refreshVault(forceRefresh = false) {
       showToast(`Biblioteca sincronizada (${vaultItems.length} itens encontrados)`);
     }
   } catch (err) {
+    if (generation !== vaultGeneration) return;
+    vaultItems = [];
+    vaultFilteredItems = [];
+    vaultLoaded = false;
+    renderVaultGrid();
     if (loading) loading.hidden = true;
     showToast(`Erro ao carregar biblioteca da Epic: ${err}`, true);
   } finally {
+    if (generation !== vaultGeneration) return;
     isVaultRefreshing = false;
     if (refreshBtn) {
       refreshBtn.disabled = false;
@@ -1848,6 +1881,19 @@ function renderVaultGrid(resetLimit = true) {
 
   if (resetLimit) vaultRenderLimit = 40;
   grid.innerHTML = "";
+
+  const emptyTitle = document.getElementById("vault-empty-title");
+  const emptyHint = document.getElementById("vault-empty-hint");
+  const refreshBtn = document.getElementById("btn-refresh-vault");
+  if (refreshBtn) refreshBtn.disabled = !vaultAccountId;
+  if (emptyTitle) emptyTitle.textContent = vaultAccountId ? "Nenhum item encontrado." : "Conecte sua conta Epic.";
+  if (emptyHint) emptyHint.textContent = vaultAccountId
+    ? "Verifique o termo pesquisado ou sincronize a biblioteca com sua conta Epic."
+    : "Faça login para visualizar seus plugins, projetos e assets.";
+  if (!vaultAccountId) {
+    if (empty) empty.hidden = false;
+    return;
+  }
 
   if (vaultFilteredItems.length === 0) {
     if (empty) empty.hidden = false;

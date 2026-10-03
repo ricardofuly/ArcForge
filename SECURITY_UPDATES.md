@@ -23,6 +23,10 @@ A sessão Epic usa Windows Credential Manager no Windows e Secret Service no Lin
 
 As thumbnails precisam ser PNGs de até 8 MB, em `Saved/AutoScreenshot.png` de projetos monitorados. A exclusão exige descritor válido e usa a Lixeira; não exclui a raiz das pastas monitoradas. Destinos com links/junctions são recusados nas operações protegidas. ZIPs de Engine só podem ser baixados dos hosts oficiais explicitamente permitidos; um host novo da Epic exige revisão da lista, sem fallback permissivo.
 
+### Correção da biblioteca na v0.1.4
+
+A biblioteca exige sessão válida antes de ler o cache. O cache é vinculado ao ID da conta Epic; arquivos antigos sem proprietário são ignorados e recriados por uma sincronização autenticada. Logout limpa a biblioteca e remove seu cache, e respostas pendentes de uma sessão anterior não repovoam a interface. O arquivo `vault_cache.json` é criado no diretório de configuração do usuário, não acompanha os instaladores. A v0.1.3 publicada continha o comportamento anterior de leitura sem autenticação, mas nenhum cache pessoal foi incluído no Git ou nos assets da release.
+
 ## Validação e limites
 
 Os testes de regressão cobrem origens de download, nonce, nomes reservados/traversal, escopo de projetos, thumbnails, migração/logout e assinatura adulterada. Os audits consultam npm e RustSec. A assinatura Minisign autentica o pacote para o atualizador; Authenticode do instalador Windows continua dependendo de um certificado do publicador e não é substituído por Minisign.

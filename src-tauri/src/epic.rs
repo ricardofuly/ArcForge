@@ -95,6 +95,17 @@ pub fn clear_session() -> Result<()> {
     crate::credentials::clear(&session_entry()?, &session_path()?)
 }
 
+pub fn with_current_account<T>(account_id: &str, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    let _guard = SESSION_STORAGE_LOCK.lock().map_err(|_| anyhow!("Falha no armazenamento de sessão"))?;
+    let data = crate::credentials::load(&session_entry()?, &session_path()?)?
+        .ok_or_else(|| anyhow!("Faça login para acessar a biblioteca"))?;
+    let session: EpicSession = serde_json::from_str(&data)?;
+    if session.account_id != account_id {
+        return Err(anyhow!("Sessão Epic alterada; sincronize a biblioteca novamente"));
+    }
+    operation()
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -115,6 +126,10 @@ pub fn create_client() -> Result<reqwest::Client> {
 static TOKEN_REFRESH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub async fn get_valid_access_token() -> Result<String> {
+    Ok(get_valid_session().await?.access_token)
+}
+
+pub async fn get_valid_session() -> Result<EpicSession> {
     let _refresh_guard = TOKEN_REFRESH_LOCK.lock().await;
     let mut session = load_session().ok_or_else(|| anyhow!("não há sessão da Epic conectada"))?;
     let now = now_secs();
@@ -151,7 +166,7 @@ pub async fn get_valid_access_token() -> Result<String> {
         save_session(&session)?;
     }
 
-    Ok(session.access_token)
+    Ok(session)
 }
 
 /// Verifica o status da conta Epic persistida (tenta renovar token se necessário).
@@ -269,6 +284,7 @@ pub async fn login_with_code(window: &Window, raw_input: &str) -> Result<EpicSta
 }
 
 pub async fn logout() -> Result<()> {
+    let _refresh_guard = TOKEN_REFRESH_LOCK.lock().await;
     if let Some(session) = load_session() {
         if let Ok(client) = create_client() {
             let url = format!(
@@ -279,6 +295,7 @@ pub async fn logout() -> Result<()> {
         }
     }
     clear_session()?;
+    crate::vault::clear_cached_vault()?;
     Ok(())
 }
 

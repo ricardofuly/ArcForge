@@ -18,3 +18,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Runtime account data must never be shipped with the source.
+**/vault_cache.json
+**/engine_catalog_cache.json
+**/epic_session.json
+

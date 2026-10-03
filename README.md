@@ -1,6 +1,6 @@
 # ArcForge
 
-Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.3**.
+Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.4**.
 
 [Baixar a release](https://github.com/ricardofuly/ArcForge/releases/latest) · [Segurança e assinaturas](SECURITY_UPDATES.md) · [Revisão de segurança](SECURITY_REVIEW.md)
 
@@ -78,12 +78,14 @@ O atualizador aceita apenas pacotes da última release oficial, via HTTPS, com a
 Com ambos os arquivos na mesma pasta e a chave pública obtida deste repositório:
 
 ```powershell
-minisign -V -p arcforge.pub -m ArcForge_0.1.3_x64-setup.exe
+minisign -V -p arcforge.pub -m ArcForge_0.1.4_x64-setup.exe
 ```
 
 Minisign autentica o pacote para o atualizador. Não substitui Authenticode: os instaladores ainda não possuem certificado de publicador Windows. Aplicativos antigos precisam receber este instalador para passar a usar a nova verificação.
 
 A sessão Epic é guardada no Windows Credential Manager ou Secret Service, sem escrita de novos tokens em JSON. Sessões antigas são migradas antes da remoção do arquivo legado. O atualizador público não lê tokens pessoais do GitHub.
+
+Na versão 0.1.4, a biblioteca exige login antes de ler o cache e vincula os itens à conta Epic. Sair da conta limpa os itens e seu cache; respostas pendentes de uma sessão anterior são descartadas. Caches antigos sem identificação da conta são ignorados e recriados ao sincronizar. Esses arquivos são locais e não acompanham os instaladores.
 
 As operações protegidas validam nomes e caminhos, recusam links/junctions e limitam downloads e thumbnails. A exclusão de projetos usa a Lixeira. Projetos e plugins Unreal precisam ser confiáveis: o compilador e o Editor executam código deles.
 
@@ -93,13 +95,13 @@ A revisão corrigiu os achados documentados e atualizou `rustls`. Permanece uma 
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml --locked
-node --test tests/frontend-build.test.cjs tests/security-ui.test.cjs
+node --test tests/frontend-build.test.cjs tests/security-ui.test.cjs tests/vault-auth.test.cjs
 python -m unittest discover -s tests -p test_security_release.py
 npm audit
 cargo audit --file src-tauri/Cargo.lock
 ```
 
-A validação local de segurança passou com 25 testes Rust, 6 testes de interface e 3 testes de publicação; três integrações ficam ignoradas na execução padrão. O teste isolado do Credential Manager também foi executado no Windows. A autenticação/download real da Epic não foi retestada nessa revisão.
+A validação local passou com 25 testes Rust, 9 testes de interface e 3 testes de publicação; três integrações ficam ignoradas na execução padrão. O teste isolado do Credential Manager também foi executado na revisão de segurança. A autenticação/download real da Epic não foi retestada nessa revisão.
 
 ## Dados e compatibilidade
 
