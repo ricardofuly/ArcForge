@@ -45,10 +45,7 @@
 
       <div class="sidebar-footer">
         <span class="sidebar-meta" id="sidebar-stats">0 engines • 0 projetos</span>
-        <button class="sidebar-meta-btn" id="btn-check-updates" title="Clique para verificar atualizações">
-          <span>ArcForge v0.1.4</span>
-          <span class="sidebar-update-icon"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg></span>
-        </button>
+        <span class="sidebar-version">ArcForge v0.1.5</span>
       </div>
       <div class="window-controls" role="group" aria-label="Controles da janela">
         <button id="window-minimize" class="window-control" aria-label="Minimizar" title="Minimizar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg></button>
@@ -305,6 +302,15 @@
             <p>Prepare seu workspace e escolha as pastas que o ArcForge acompanha.</p>
           </div></div>
           <div class="settings-grid">
+            <article class="settings-panel settings-updates">
+              <span class="settings-eyebrow">ARCFORGE</span>
+              <h2>Atualizações</h2>
+              <p id="settings-update-status" role="status">Verifique se há uma nova versão do launcher disponível.</p>
+              <div class="settings-update-actions">
+                <button type="button" class="btn btn-primary" id="btn-check-updates"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg> Verificar atualizações</button>
+                <button type="button" class="btn btn-secondary" id="btn-update-available" hidden>Ver atualização <svg class="ui-icon" aria-hidden="true"><use href="icons.svg#external" /></svg></button>
+              </div>
+            </article>
             <article class="settings-panel">
               <span class="settings-eyebrow">UNREAL ENGINE</span>
               <h2>Registre sua engine</h2>
@@ -319,16 +325,13 @@
               <div id="watched-dirs" class="chip-row settings-paths"></div>
               <p class="settings-note">Os projetos encontrados ficam disponíveis na aba Projetos.</p>
             </article>
+
           </div>
         </section>
       </main>
-      <section class="account-bar" aria-label="Conta, notificações e transferências">
+      <section class="account-bar" aria-label="Conta e transferências">
         <!-- Seção do Usuário Epic Games (Perfil) -->
         <div class="user-profile-section">
-          <button class="btn-icon-round" id="btn-notifications" title="Notificações e atualizações" aria-label="Notificações e atualizações"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#bell" /></svg>
-            <span>Notificações</span>
-          </button>
-
           <div class="user-pill" id="user-pill-box">
             <div class="user-avatar" id="user-avatar">?</div>
             <div class="account-identity"><small>CONTA EPIC GAMES</small><span class="user-name-text" id="user-display-name">Epic: Conectando…</span></div>
@@ -336,12 +339,6 @@
             <button id="btn-epic-logout" class="user-btn-action" hidden>Sair</button>
           </div>
         </div>
-
-        <!-- Botão Pill de Live Update quando houver atualização disponível -->
-        <button class="btn-update-pill" id="btn-update-available" hidden title="Nova versão disponível! Clique para ver detalhes e atualizar">
-          <span class="update-pulse-dot"></span>
-          <span id="btn-update-pill-text">Atualização disponível!</span>
-        </button>
 
         <!-- Widget de Download Ativo na Topbar (igual à referência) -->
         <div class="top-download-container" id="top-download-container">
@@ -371,7 +368,7 @@
       <footer class="workspace-footer">
         <span><i></i> Workspace local</span>
         <span id="workspace-stats">0 engines · 0 projetos</span>
-        <span>ARCFORGE <span class="footer-version">/ v0.1.4</span></span>
+        <span>ARCFORGE <span class="footer-version">/ v0.1.5</span></span>
       </footer>
     </div>
   </div>
@@ -709,7 +706,7 @@
 
   <!-- MODAL: ATUALIZAÇÃO DO APLICATIVO (LIVE UPDATE) -->
   <div id="modal-app-update" class="modal-overlay" hidden>
-    <div class="modal-card modal-update-card">
+    <div class="modal modal-update-card" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" aria-describedby="update-modal-subtitle" tabindex="-1">
       <div class="modal-header">
         <div class="modal-header-icon-wrap update-header-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
@@ -719,10 +716,11 @@
           </svg>
         </div>
         <div>
-          <h3 class="modal-title">Atualização do ArcForge</h3>
+          <span class="settings-eyebrow">ARCFORGE / ATUALIZAÇÕES</span>
+          <h2 id="update-dialog-title">Atualização do ArcForge</h2>
           <p class="modal-subtitle" id="update-modal-subtitle">Uma nova versão está disponível para download.</p>
         </div>
-        <button class="modal-close-btn" id="btn-close-update-modal"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#close" /></svg></button>
+        <button type="button" class="modal-close-btn" id="btn-close-update-modal" aria-label="Fechar atualização" title="Fechar"><svg class="ui-icon" aria-hidden="true"><use href="icons.svg#close" /></svg></button>
       </div>
 
       <div class="update-version-banner">
@@ -730,7 +728,7 @@
           <small>Versão Atual</small>
           <strong id="update-current-version">v0.1.0</strong>
         </div>
-        <div class="update-version-arrow">➔</div>
+        <div class="update-version-arrow" aria-hidden="true">→</div>
         <div class="update-version-badge new">
           <small>Nova Versão</small>
           <strong id="update-latest-version">v0.2.0</strong>

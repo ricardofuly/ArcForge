@@ -12,11 +12,15 @@ mod project;
 mod security;
 mod updater;
 mod vault;
+#[cfg(windows)]
+mod live_update;
 
 use config::{AppConfig, AppState};
 use std::sync::Mutex;
 
 fn main() {
+    #[cfg(windows)]
+    if live_update::run_helper_if_requested() { return; }
     let config = AppConfig::load();
     let _ = engine::sync_install_ini(&config.engines); // best-effort, não impede o app de abrir
 

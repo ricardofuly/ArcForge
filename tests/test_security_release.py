@@ -23,6 +23,7 @@ class ReleaseSecurityTests(unittest.TestCase):
             if args[:3] == ["gh", "release", "download"]:
                 destination = Path(args[args.index("--dir") + 1])
                 (destination / "ArcForge-setup.exe").write_bytes(b"dummy installer")
+                (destination / "ArcForge_0.1.4_windows_x64.bin").write_bytes(b"dummy executable")
             if args[:2] == ["minisign", "-S"]:
                 key = Path(args[args.index("-s") + 1])
                 key_paths.append(key)
@@ -62,6 +63,8 @@ class ReleaseSecurityTests(unittest.TestCase):
         verify = next(i for i, args in enumerate(calls) if args[:2] == ["minisign", "-V"])
         upload = next(i for i, args in enumerate(calls) if args[:3] == ["gh", "release", "upload"])
         publish = next(i for i, args in enumerate(calls) if args[:3] == ["gh", "release", "edit"])
+        live_verify = next(i for i, args in enumerate(calls) if args[:2] == ["minisign", "-V"] and args[-1].endswith(".bin"))
+        self.assertLess(live_verify, upload)
         self.assertLess(verify, upload)
         self.assertLess(upload, publish)
 

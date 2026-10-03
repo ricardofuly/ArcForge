@@ -81,6 +81,19 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Upload Windows Live Update executable
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $package = "src-tauri/target/release/ArcForge_${version}_windows_x64.bin"
+          Copy-Item -LiteralPath src-tauri/target/release/unreal-launcher.exe -Destination $package
+          gh release upload "v$version" $package --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Live Update upload failed" }
+
   sign-and-publish:
     needs: release
     runs-on: ubuntu-22.04

@@ -8,7 +8,23 @@ use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
 
 const GITHUB_REPO: &str = "ricardofuly/ArcForge";
-const USER_AGENT: &str = "Unreal-Launcher-AutoUpdater";
+const USER_AGENT: &str = "ArcForge-AutoUpdater";
+static UPDATE_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+struct UpdateGuard;
+impl Drop for UpdateGuard {
+    fn drop(&mut self) { UPDATE_RUNNING.store(false, std::sync::atomic::Ordering::Release); }
+}
+
+#[cfg(windows)]
+pub(crate) fn is_live_windows_asset(name: &str) -> bool {
+    cfg!(target_arch = "x86_64") && name.starts_with("ArcForge_") && name.ends_with("_windows_x64.bin")
+}
+
+fn supports_live_update(name: &str) -> bool {
+    #[cfg(windows)] { return is_live_windows_asset(name); }
+    #[cfg(target_os = "linux")] { return std::env::var_os("APPIMAGE").is_some() && name.ends_with(".AppImage"); }
+    #[cfg(not(any(windows, target_os = "linux")))] { let _ = name; false }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateInfo {
@@ -66,13 +82,10 @@ pub fn is_newer_version(local: &str, remote: &str) -> bool {
 fn select_platform_asset(assets: &[GithubAsset]) -> Option<&GithubAsset> {
     #[cfg(target_os = "windows")]
     {
-        // No Windows, prioriza instaladores .exe (setup/nsis) ou .msi
-        if let Some(asset) = assets.iter().find(|a| a.name.ends_with("-setup.exe") || a.name.ends_with(".exe")) {
-            return Some(asset);
-        }
-        if let Some(asset) = assets.iter().find(|a| a.name.ends_with(".msi")) {
-            return Some(asset);
-        }
+        // .bin prevents older clients from treating the raw executable as an installer.
+        if let Some(asset) = assets.iter().find(|a| is_live_windows_asset(&a.name)) { return Some(asset); }
+        if let Some(asset) = assets.iter().find(|a| a.name.ends_with("-setup.exe")) { return Some(asset); }
+
     }
 
     #[cfg(target_os = "linux")]
@@ -173,7 +186,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
         asset_size: chosen_asset.map(|a| a.size).unwrap_or(0),
         is_appimage,
         automatic_update_ready: option_env!("ARCFORGE_UPDATE_PUBLIC_KEY").is_some_and(|k| !k.trim().is_empty())
-            && chosen_asset.is_some_and(|asset| release.assets.iter().any(|s| s.name == format!("{}.minisig", asset.name))),
+            && chosen_asset.is_some_and(|asset| supports_live_update(&asset.name) && release.assets.iter().any(|s| s.name == format!("{}.minisig", asset.name))),
     })
 }
 
@@ -183,6 +196,9 @@ pub async fn download_and_apply_update(
     asset_name: String,
     app: AppHandle,
 ) -> Result<(), String> {
+    UPDATE_RUNNING.compare_exchange(false, true, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire)
+        .map_err(|_| "Já existe uma atualização em andamento")?;
+    let _guard = UpdateGuard;
     // Resolve again in Rust; the frontend cannot select an arbitrary installer.
     let key = option_env!("ARCFORGE_UPDATE_PUBLIC_KEY").filter(|k| !k.trim().is_empty())
         .ok_or("Atualização automática indisponível: chave de assinatura não configurada. Use a página oficial de releases.")?;
@@ -191,6 +207,7 @@ pub async fn download_and_apply_update(
         || release.asset_name.as_deref() != Some(&asset_name) {
         return Err("Pacote não corresponde à atualização oficial disponível".into());
     }
+    if !release.automatic_update_ready { return Err("Live Update indisponível para este pacote; use a release oficial".into()); }
     crate::security::file_name(&asset_name).map_err(|e| e.to_string())?;
     if !valid_release_asset_url(&asset_url) { return Err("Origem de atualização inválida".into()); }
     let client = reqwest::Client::builder()
@@ -293,6 +310,10 @@ pub async fn download_and_apply_update(
         .map_err(|e| format!("Erro ao finalizar gravação do arquivo: {}", e))?;
     drop(file);
 
+    let _ = app.emit("app_update_progress", UpdateProgressPayload {
+        status: "verifying".into(), downloaded_bytes, total_bytes: downloaded_bytes,
+        percentage: 100.0, speed_mbps: 0.0, message: "Verificando assinatura da atualização…".into(),
+    });
     let signature_url = format!("{asset_url}.minisig");
     let response = client.get(&signature_url).send().await.map_err(|_| "Falha ao obter assinatura")?
         .error_for_status().map_err(|_| "Assinatura ausente: atualização bloqueada")?;
@@ -306,11 +327,12 @@ pub async fn download_and_apply_update(
     let signature_text = std::str::from_utf8(&signature_bytes).map_err(|_| "Assinatura inválida")?;
     verify_update(&temp_file_path, key, signature_text, &release.latest_version, &asset_name)?;
 
+    std::fs::write(temp_dir.path().join("package.minisig"), &signature_bytes).map_err(|e| e.to_string())?;
     // Emite progresso de 100%
     let _ = app.emit(
         "app_update_progress",
         UpdateProgressPayload {
-            status: "installing".to_string(),
+            status: "preparing".to_string(),
             downloaded_bytes,
             total_bytes: downloaded_bytes,
             percentage: 100.0,
@@ -319,118 +341,65 @@ pub async fn download_and_apply_update(
         },
     );
 
+    #[cfg(windows)] {
+        let path = temp_file_path.clone();
+        let version = release.latest_version.clone();
+        let name = asset_name.clone();
+        tauri::async_runtime::spawn_blocking(move || crate::live_update::prepare(&path, &version, &name))
+            .await.map_err(|e| e.to_string())??;
+        let _verified_dir = temp_dir.keep();
+        let _ = app.emit("app_update_progress", UpdateProgressPayload {
+            status: "restarting".into(), downloaded_bytes, total_bytes: downloaded_bytes,
+            percentage: 100.0, speed_mbps: 0.0, message: "Atualização verificada. Reiniciando o ArcForge…".into(),
+        });
+        app.exit(0);
+        return Ok(());
+    }
+    #[cfg(not(windows))] {
     // Aplicação da atualização conforme a plataforma
     // Installer continues after app exits. Preserve only the verified package directory.
     let _verified_dir = temp_dir.keep();
     apply_update_file(&temp_file_path, &asset_name, app)
+    }
 }
 
 /// Aplica o arquivo de atualização dependendo do formato e do sistema operacional
+#[cfg(not(windows))]
 fn apply_update_file(update_path: &Path, asset_name: &str, app: AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        if asset_name.ends_with(".exe") {
-            // Executa o instalador .exe
-            std::process::Command::new(update_path)
-                .spawn()
-                .map_err(|e| format!("Erro ao iniciar instalador .exe: {}", e))?;
-
-            // Fecha a aplicação para liberar os arquivos para o instalador
-            app.exit(0);
-            return Ok(());
-        } else if asset_name.ends_with(".msi") {
-            // Executa o instalador .msi
-            std::process::Command::new("msiexec")
-                .args(["/i", update_path.to_str().unwrap_or_default()])
-                .spawn()
-                .map_err(|e| format!("Erro ao iniciar instalador .msi: {}", e))?;
-
-            app.exit(0);
-            return Ok(());
-        }
-    }
-
     #[cfg(target_os = "linux")]
     {
         // 1. Caso AppImage
         if let Ok(current_appimage_path) = std::env::var("APPIMAGE") {
             let current_path = PathBuf::from(&current_appimage_path);
 
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(update_path, std::fs::Permissions::from_mode(0o755));
+            use std::os::unix::fs::PermissionsExt;
+            let parent = current_path.parent().ok_or("Diretório do AppImage inválido")?;
+            let mut candidate = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+            std::io::copy(&mut std::fs::File::open(update_path).map_err(|e| e.to_string())?, &mut candidate).map_err(|e| e.to_string())?;
+            candidate.as_file().sync_all().map_err(|e| e.to_string())?;
+            candidate.as_file().set_permissions(std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+            let candidate = candidate.into_temp_path();
+            let backup = current_path.with_file_name(format!("arcforge-{}.old", uuid::Uuid::new_v4()));
+            std::fs::rename(&current_path, &backup).map_err(|e| e.to_string())?;
+            if let Err(error) = std::fs::rename(&candidate, &current_path) {
+                std::fs::rename(&backup, &current_path).map_err(|e| format!("Falha ao restaurar: {e}; backup: {}", backup.display()))?;
+                return Err(error.to_string());
             }
-
-            // Faz backup do arquivo antigo antes de sobrescrever
-            let backup_path = current_path.with_extension("AppImage.old");
-            let _ = std::fs::remove_file(&backup_path);
-            let _ = std::fs::rename(&current_path, &backup_path);
-
-            // Copia o novo AppImage para o caminho do executável atual
-            if let Err(e) = std::fs::copy(update_path, &current_path) {
-                // Tenta restaurar o backup se falhar
-                let _ = std::fs::rename(&backup_path, &current_path);
-                return Err(format!("Falha ao substituir o AppImage em execução: {}", e));
+            if let Err(error) = std::process::Command::new(&current_path).spawn() {
+                std::fs::remove_file(&current_path).map_err(|e| e.to_string())?;
+                std::fs::rename(&backup, &current_path).map_err(|e| e.to_string())?;
+                return Err(format!("Falha ao reiniciar; versão anterior restaurada: {error}"));
             }
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&current_path, std::fs::Permissions::from_mode(0o755));
-            }
-
-            // Remove o arquivo temporário
+            let _ = std::fs::remove_file(backup);
             let _ = std::fs::remove_file(update_path);
-
-            // Relauncha a nova versão do AppImage e encerra a atual
-            std::process::Command::new(&current_path)
-                .spawn()
-                .map_err(|e| format!("Erro ao reiniciar nova versão do AppImage: {}", e))?;
 
             app.exit(0);
             return Ok(());
         }
 
-        // 2. Caso pacote .deb
-        if asset_name.ends_with(".deb") {
-            // Tenta abrir com o instalador de pacotes do sistema
-            if let Err(_) = std::process::Command::new("pkexec")
-                .args(["dpkg", "-i", update_path.to_str().unwrap_or_default()])
-                .spawn()
-            {
-                // Fallback: abre o arquivo com o gerenciador padrão do sistema (GNOME Software, etc)
-                let _ = open::that(update_path);
-            }
-            return Ok(());
-        }
-
-        // 3. Caso pacote .rpm
-        if asset_name.ends_with(".rpm") {
-            if let Err(_) = std::process::Command::new("pkexec")
-                .args(["rpm", "-Uvh", update_path.to_str().unwrap_or_default()])
-                .spawn()
-            {
-                let _ = open::that(update_path);
-            }
-            return Ok(());
-        }
-
-        // Se for um AppImage baixado sem o app atual ser um AppImage
-        if asset_name.ends_with(".AppImage") {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(update_path, std::fs::Permissions::from_mode(0o755));
-            }
-            let _ = open::that(update_path);
-            return Ok(());
-        }
     }
-
-    // Fallback genérico: abre a pasta contendo o arquivo baixado
-    let _ = open::that(update_path);
-    Ok(())
+    let _ = (update_path, asset_name, app);
+    Err("Formato não compatível com Live Update".into())
 }
 
 fn valid_release_asset_url(raw: &str) -> bool {
@@ -452,7 +421,7 @@ fn update_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
-fn verify_update(path: &Path, key: &str, signature: &str, version: &str, name: &str) -> Result<(), String> {
+pub(crate) fn verify_update(path: &Path, key: &str, signature: &str, version: &str, name: &str) -> Result<(), String> {
     let data = std::fs::read(path).map_err(|_| "Não foi possível ler a atualização")?;
     verify_signed_bytes(&data, key, signature, &format!("ArcForge version={version} asset={name}"))
 }
@@ -470,6 +439,16 @@ fn verify_signed_bytes(data: &[u8], key: &str, signature: &str, expected: &str) 
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn live_package_is_selected_independently_of_asset_order() {
+        let assets = ["ArcForge_0.2.0_x64-setup.exe", "ArcForge_0.2.0_windows_x64.bin.minisig", "ArcForge_0.2.0_windows_arm64.bin", "ArcForge_0.2.0_windows_x64.bin"]
+            .map(|name| GithubAsset { name: name.into(), size: 1, browser_download_url: String::new() });
+        assert_eq!(select_platform_asset(&assets).unwrap().name, "ArcForge_0.2.0_windows_x64.bin");
+        assert!(!supports_live_update(&assets[0].name));
+        assert!(!supports_live_update(&assets[1].name));
+        assert!(!supports_live_update(&assets[2].name));
+    }
     #[test]
     fn rejects_external_asset_origins_and_traversal() {
         assert!(valid_release_asset_url("https://github.com/ricardofuly/ArcForge/releases/download/v0.2.0/ArcForge-setup.exe"));

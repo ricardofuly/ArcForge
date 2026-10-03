@@ -20,7 +20,7 @@ def main():
         assets = root / "assets"
         assets.mkdir()
         subprocess.run(["gh", "release", "download", tag, "--dir", str(assets)], check=True)
-        packages = [p for p in assets.iterdir() if p.suffix.lower() in {".exe", ".msi", ".appimage", ".deb", ".rpm"}]
+        packages = [p for p in assets.iterdir() if p.suffix.lower() in {".exe", ".msi", ".appimage", ".deb", ".rpm", ".bin"}]
         if not packages:
             raise RuntimeError("No packages in draft release; refusing publication")
         password = (os.environ.get("ARCFORGE_SIGNING_PASSWORD", "") + "\n").encode()

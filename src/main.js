@@ -471,13 +471,24 @@ function renderWatchedDirs() {
       chip.appendChild(span);
 
       const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "watched-dir-remove";
       removeBtn.innerHTML = uiIcon("close");
       removeBtn.title = `Parar de monitorar ${dir}`;
       removeBtn.setAttribute("aria-label", `Parar de monitorar ${dir}`);
       removeBtn.addEventListener("click", async () => {
-        await invoke("remove_project_dir", { path: dir });
-        await refreshProjectDirs();
-        await refreshProjects();
+        if (removeBtn.disabled) return;
+        removeBtn.disabled = true;
+        try {
+          await invoke("remove_project_dir", { path: dir });
+          await refreshProjectDirs();
+          await refreshProjects();
+          showToast("Pasta removida do monitoramento.");
+        } catch (err) {
+          showToast(`Não foi possível remover a pasta do monitoramento: ${err}`, true);
+        } finally {
+          removeBtn.disabled = false;
+        }
       });
       chip.appendChild(removeBtn);
       row.appendChild(chip);
@@ -2290,6 +2301,7 @@ document.getElementById("btn-refresh-vault")?.addEventListener("click", async ()
 // ---------- LIVE UPDATE SYSTEM ----------
 let availableUpdate = null;
 let isAppUpdating = false;
+let isCheckingAppUpdates = false;
 
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return "0 MB";
@@ -2307,36 +2319,49 @@ function formatDate(isoStr) {
 }
 
 async function checkForAppUpdates(manual = false) {
+  if (isCheckingAppUpdates || isAppUpdating) return;
+  isCheckingAppUpdates = true;
+  const checkBtn = document.getElementById("btn-check-updates");
+  const statusEl = document.getElementById("settings-update-status");
   const pillBtn = document.getElementById("btn-update-available");
-  const pillText = document.getElementById("btn-update-pill-text");
+  if (checkBtn) {
+    checkBtn.disabled = true;
+    checkBtn.innerHTML = `${uiIcon("refresh")} Verificando…`;
+  }
+  if (statusEl) statusEl.textContent = "Consultando a versão mais recente…";
 
   try {
-    if (manual) {
-      showToast("Verificando atualizações no repositório...", "info");
-    }
-
     const info = await invoke("check_app_update");
     if (info && info.has_update) {
       availableUpdate = info;
-      if (pillText) pillText.textContent = `Nova versão v${info.latest_version} disponível!`;
+      if (statusEl) statusEl.textContent = `Nova versão v${info.latest_version} disponível para seu workspace.`;
       if (pillBtn) pillBtn.hidden = false;
 
       if (manual) {
         openAppUpdateModal();
       } else {
-        showToast(`Nova versão v${info.latest_version} do ArcForge disponível!`, "info");
+        showToast(`Nova versão v${info.latest_version} do ArcForge disponível!`);
       }
     } else {
+      availableUpdate = null;
+      if (statusEl) statusEl.textContent = `Seu ArcForge está atualizado${info?.current_version ? ` (v${info.current_version})` : ""}.`;
       if (pillBtn) pillBtn.hidden = true;
       if (manual) {
         const curVer = info?.current_version || "0.1.0";
-        showToast(`Você já está utilizando a versão mais recente (v${curVer})!`, "success");
+        showToast(`Você já está utilizando a versão mais recente (v${curVer})!`);
       }
     }
   } catch (err) {
+    if (statusEl) statusEl.textContent = "Não foi possível verificar. Tente novamente.";
     console.error("Erro ao verificar atualizações:", err);
     if (manual) {
-      showToast("Não foi possível verificar atualizações: " + err, "error");
+      showToast("Não foi possível verificar atualizações: " + err, true);
+    }
+  } finally {
+    isCheckingAppUpdates = false;
+    if (checkBtn) {
+      checkBtn.disabled = false;
+      checkBtn.innerHTML = `${uiIcon("refresh")} Verificar atualizações`;
     }
   }
 }
@@ -2345,6 +2370,10 @@ function openAppUpdateModal() {
   if (!availableUpdate) return;
 
   const modal = document.getElementById("modal-app-update");
+  if (isAppUpdating) {
+    if (modal) modal.hidden = false;
+    return;
+  }
   const curVerEl = document.getElementById("update-current-version");
   const latVerEl = document.getElementById("update-latest-version");
   const dateEl = document.getElementById("update-release-date");
@@ -2368,26 +2397,30 @@ function openAppUpdateModal() {
     startBtn.innerHTML = availableUpdate.automatic_update_ready ? `<span>Atualizar Agora</span>` : `<span>Ver release oficial</span>`;
   }
 
-  if (modal) modal.hidden = false;
+  if (modal) {
+    modal.hidden = false;
+    document.getElementById("btn-close-update-modal")?.focus();
+  }
 }
 
 function closeAppUpdateModal() {
   if (isAppUpdating) {
-    showToast("Atualização em andamento. Por favor aguarde.", "warning");
+    showToast("Atualização em andamento. Por favor aguarde.");
     return;
   }
   const modal = document.getElementById("modal-app-update");
   if (modal) modal.hidden = true;
+  document.getElementById("btn-check-updates")?.focus();
 }
 
 async function startLiveUpdate() {
-  if (!availableUpdate) return;
+  if (!availableUpdate || isAppUpdating) return;
   if (!availableUpdate.automatic_update_ready) {
     await openUrl("https://github.com/ricardofuly/ArcForge/releases/latest");
     return;
   }
   if (!availableUpdate.asset_url) {
-    showToast("Nenhum binário direto encontrado para esta versão. Abrindo GitHub...", "info");
+    showToast("Nenhum binário direto encontrado para esta versão. Abrindo GitHub...");
     if (availableUpdate.html_url) {
       openUrl(availableUpdate.html_url);
     }
@@ -2424,7 +2457,7 @@ async function startLiveUpdate() {
     if (closeBtn) closeBtn.disabled = false;
     const statusEl = document.getElementById("update-progress-status");
     if (statusEl) statusEl.textContent = "Erro ao atualizar: " + err;
-    showToast("Erro ao instalar atualização: " + err, "error");
+    showToast("Erro ao atualizar: " + err, true);
   }
 }
 
@@ -2438,11 +2471,7 @@ listen("app_update_progress", (event) => {
   const speedEl = document.getElementById("update-progress-speed");
 
   if (statusEl) {
-    if (p.status === "installing") {
-      statusEl.textContent = "Instalando atualização e reiniciando…";
-    } else {
-      statusEl.textContent = p.message || "Baixando atualização…";
-    }
+    statusEl.textContent = p.message || "Baixando atualização…";
   }
 
   if (barEl) barEl.style.width = `${Math.min(100, Math.max(0, p.percentage))}%`;
@@ -2454,18 +2483,27 @@ listen("app_update_progress", (event) => {
     bytesEl.textContent = `${dlMb} MB / ${totMb} MB`;
   }
 
-  if (speedEl && p.speed_mbps > 0) {
-    speedEl.textContent = `${p.speed_mbps.toFixed(1)} MB/s`;
-  }
+  if (speedEl) speedEl.textContent = p.status === "downloading" && p.speed_mbps > 0 ? `${p.speed_mbps.toFixed(1)} MB/s` : "";
 });
 
 // Event listeners do sistema de update
 document.getElementById("btn-update-available")?.addEventListener("click", openAppUpdateModal);
 document.getElementById("btn-check-updates")?.addEventListener("click", () => checkForAppUpdates(true));
-document.getElementById("btn-notifications")?.addEventListener("click", () => checkForAppUpdates(true));
 document.getElementById("btn-close-update-modal")?.addEventListener("click", closeAppUpdateModal);
 document.getElementById("btn-remind-later-update")?.addEventListener("click", closeAppUpdateModal);
 document.getElementById("btn-start-live-update")?.addEventListener("click", startLiveUpdate);
+document.getElementById("modal-app-update")?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAppUpdateModal();
+  } else if (event.key === "Tab") {
+    const controls = [...event.currentTarget.querySelectorAll("button:not(:disabled)")];
+    if (!controls.length) return;
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
 document.getElementById("btn-view-github-release")?.addEventListener("click", () => {
   if (availableUpdate?.html_url) {
     openUrl(availableUpdate.html_url);

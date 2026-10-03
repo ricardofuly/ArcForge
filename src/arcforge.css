@@ -163,9 +163,6 @@ body::after {
 .account-identity small { color: #74a6bb; font-size: 8px; letter-spacing: 1.3px; }
 .account-bar .user-name-text { font-size: 13px; color: #e4f6fc; }
 .account-bar .user-btn-action { padding: 7px 11px; color: #beecf7; border-color: rgba(18, 196, 232, .24); background: rgba(18, 196, 232, .08); }
-.account-bar #btn-notifications { order: 1; width: auto; min-width: 150px; height: auto; border-radius: 5px; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 17px; color: #b5d6e5; border: 1px solid rgba(113, 193, 218, .17); background: rgba(5, 29, 43, .55); font-size: 11px; }
-.account-bar #btn-notifications svg { color: var(--accent); }
-.account-bar #btn-notifications:hover { background: rgba(18, 196, 232, .1); border-color: rgba(18, 196, 232, .4); }
 .account-bar .top-download-container { margin-left: auto; }
 .account-bar .btn-update-pill { font-size: 10px; padding: 9px 12px; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 25px; }
@@ -178,6 +175,14 @@ body::after {
 .settings-paths .chip { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; }
 .settings-paths .chip > span { min-width: 0; overflow-wrap: anywhere; }
 .settings-paths .chip button { flex-shrink: 0; }
+.settings-paths .chip .watched-dir-remove { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; border: 1px solid var(--border); background: rgba(8, 35, 49, .7); color: #a9cad9; }
+.settings-paths .chip .watched-dir-remove:hover { color: #ffc4bd; border-color: rgba(255, 145, 128, .5); background: rgba(158, 66, 54, .18); }
+.settings-updates { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 24px; }
+.settings-updates > .settings-eyebrow, .settings-updates > h2, .settings-updates > p { grid-column: 1; }
+.settings-updates > p { margin-bottom: 0; }
+.settings-updates .settings-update-actions { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+.settings-update-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.sidebar-version { color: var(--text-faint); font-size: 10px; white-space: nowrap; }
 .settings-panel .settings-note { font-size: 10px; margin-bottom: 0; }
 
 /* Every existing action uses the same palette, including native-looking buttons. */
@@ -292,4 +297,35 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* Update dialog follows the ArcForge panel and icon system. */
+.modal.modal-update-card { width: 660px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); padding: 26px; display: flex; flex-direction: column; overflow: auto; border-radius: 12px; border-color: rgba(104, 190, 216, .24); background: linear-gradient(145deg, #102f40, #091f2d); box-shadow: 0 28px 80px rgba(0, 0, 0, .5); }
+.modal-update-card .modal-header { display: flex; align-items: flex-start; gap: 15px; }
+.modal-update-card .update-header-icon { flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 10px; background: rgba(18, 196, 232, .1); border: 1px solid rgba(18, 196, 232, .25); color: var(--accent); }
+.modal-update-card .update-header-icon svg { width: 22px; height: 22px; }
+.modal-update-card .modal-header h2 { font-size: 22px; font-weight: 600; margin: 8px 0; color: #e4f3fa; }
+.modal-update-card .modal-header .modal-subtitle { margin: 0; line-height: 1.6; font-size: 12px; color: #96b6c8; }
+.modal-update-card .modal-close-btn { margin-left: auto; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; color: #a1c6d7; background: rgba(5, 23, 34, .5); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+.modal-update-card .modal-close-btn:hover { background: rgba(18, 196, 232, .1); border-color: var(--accent); color: #ddf6ff; }
+.modal-update-card .update-version-banner { margin: 24px 0; padding: 18px; gap: 20px; background: rgba(4, 22, 33, .6); border-color: var(--border); border-radius: 8px; }
+.modal-update-card .update-version-badge small { color: #81a8ba; font-size: 9px; letter-spacing: 1px; margin-bottom: 6px; }
+.modal-update-card .update-version-badge strong { font-size: 20px; font-weight: 600; color: #d3e9f3; }
+.modal-update-card .update-version-badge.new strong { color: var(--accent); }
+.modal-update-card .update-version-arrow { color: #6c9bad; font-size: 24px; }
+.modal-update-card .update-meta-info { color: #88abba; font-size: 10px; gap: 5px; text-align: right; }
+.modal-update-card .update-notes-container { min-height: 0; margin-bottom: 20px; }
+.modal-update-card .form-label { color: #a1c7d9; font-size: 11px; font-weight: 500; }
+.modal-update-card .update-notes-content { max-height: min(230px, 30vh); margin-top: 10px; padding: 16px; background: rgba(4, 20, 30, .65); border-color: var(--border); border-radius: 8px; color: #b5d2e0; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.modal-update-card .update-progress-box { background: rgba(7, 33, 47, .75); border-color: rgba(18, 196, 232, .3); border-radius: 8px; }
+.modal-update-card .update-status-badge, .modal-update-card .update-percent-text { color: var(--accent); }
+.modal-update-card .steam-progress-fill { background: var(--accent); }
+.modal-update-card .update-progress-header { gap: 16px; }
+.modal-update-card .update-status-badge { overflow-wrap: anywhere; }
+.modal-update-card .update-modal-actions { margin: 0; padding-top: 18px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .modal.modal-update-card { padding: 18px; }
+  .modal-update-card .modal-header h2 { font-size: 18px; }
+  .modal-update-card .update-version-banner { flex-wrap: wrap; gap: 16px; }
+  .modal-update-card .update-meta-info { width: 100%; align-items: flex-start; margin-left: 0; text-align: left; }
 }

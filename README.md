@@ -1,18 +1,18 @@
 # ArcForge
 
-Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.4**.
+Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.5**.
 
 [Baixar a release](https://github.com/ricardofuly/ArcForge/releases/latest) · [Segurança e assinaturas](SECURITY_UPDATES.md) · [Revisão de segurança](SECURITY_REVIEW.md)
 
 ## O que o launcher faz
 
 - Interface ArcForge com navegação por abas, fundo personalizado e controles de minimizar, maximizar e fechar integrados.
-- Dashboard com projetos recentes, conta Epic e notificações na parte inferior.
+- Dashboard com projetos recentes e conta Epic na parte inferior.
 - Aba **Engines** com instalações registradas, abertura do Editor e cartão de download sempre ao final da lista. No Windows, o download usa o fluxo oficial da Epic Games Launcher; no Linux, há suporte aos ZIPs oficiais de builds pré-compilados.
 - Aba **Configurações** para registrar Engines e pastas de projetos monitoradas.
 - Projetos Blueprint e C++, criação de projetos, escolha da Engine e seleção de RHI Auto/SM5/SM6. Integração com VS Code, Rider, CLion e Visual Studio conforme a disponibilidade no sistema.
 - Biblioteca Epic/Vault com download e instalação de conteúdo em projetos e Engines e criação de projetos a partir de conteúdo compatível.
-- Downloads com progresso, notificações e verificação de novas releases.
+- Downloads com progresso e verificação de novas releases na aba Configurações, com diálogo de atualização integrado ao visual do ArcForge.
 
 O ArcForge não é um produto oficial da Epic Games. Downloads e conteúdo da conta continuam sujeitos à disponibilidade e às permissões da Epic/Fab.
 
@@ -71,6 +71,14 @@ npm run tauri build -- --bundles deb,appimage
 
 Os pacotes ficam em `src-tauri/target/release/bundle/`. O workflow de release constrói Windows e Linux, testa, audita e mantém a release em rascunho até verificar as assinaturas.
 
+## Live Update
+
+No Windows, o ArcForge baixa o executável assinado, verifica sua assinatura, aguarda o processo atual encerrar, substitui o aplicativo e reinicia no mesmo caminho. A interface mostra download, verificação e preparação. Falhas na substituição ou na criação do novo processo restauram a versão anterior; o atualizador mostra o erro e o caminho do log. Projetos, configurações e sessão Epic permanecem nos respectivos diretórios de dados.
+
+As novas instalações NSIS são feitas para o usuário atual. Instalações em pastas protegidas, como Program Files (MSI), precisam ser migradas para uma instalação por usuário para usar este fluxo sem administrador. O app verifica a permissão antes de fechar. No Linux, Live Update está disponível para AppImage; DEB/RPM continuam pelo gerenciador de pacotes.
+
+O workflow publica `ArcForge_<versão>_windows_x64.bin` e sua assinatura `.minisig`, além dos instaladores. O `.bin` contém o executável completo com a interface incorporada e é exclusivo do atualizador. As versões até 0.1.4 precisam instalar uma versão com este novo mecanismo uma vez; nas atualizações seguintes, não é necessário abrir o instalador. Sem um pacote compatível assinado, o app oferece a página oficial da release.
+
 ## Segurança e verificação dos pacotes
 
 O atualizador aceita apenas pacotes da última release oficial, via HTTPS, com assinatura **Minisign** válida e comentário assinado correspondente à versão e ao nome do arquivo. A chave pública está em [arcforge.pub](arcforge.pub). Cada instalador publicado acompanha um arquivo `.minisig`.
@@ -78,7 +86,7 @@ O atualizador aceita apenas pacotes da última release oficial, via HTTPS, com a
 Com ambos os arquivos na mesma pasta e a chave pública obtida deste repositório:
 
 ```powershell
-minisign -V -p arcforge.pub -m ArcForge_0.1.4_x64-setup.exe
+minisign -V -p arcforge.pub -m ArcForge_0.1.5_x64-setup.exe
 ```
 
 Minisign autentica o pacote para o atualizador. Não substitui Authenticode: os instaladores ainda não possuem certificado de publicador Windows. Aplicativos antigos precisam receber este instalador para passar a usar a nova verificação.

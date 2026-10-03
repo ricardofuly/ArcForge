@@ -29,6 +29,7 @@ test('untrusted engine metadata is rendered as text instead of injected markup',
 test('unsigned/unconfigured update opens fixed official release page without invoking installer', async () => {
   const opened = [];
   const context = vm.createContext({
+    isAppUpdating: false,
     availableUpdate: { automatic_update_ready: false, asset_url: 'https://evil.invalid/setup.exe' },
     openUrl: async url => opened.push(url),
     invoke: () => { throw new Error('Unverified installer invoked'); },
@@ -51,4 +52,14 @@ test('every application command is covered by ACL and granted only to the local 
   assert.deepEqual(capability.windows, ['main']);
   assert.ok(capability.permissions.includes('arcforge-main'));
   assert.equal(capability.remote, undefined);
+});
+
+
+test('an update already running cannot start a second download', async () => {
+  const context = vm.createContext({
+    availableUpdate: { automatic_update_ready: true }, isAppUpdating: true,
+    invoke: () => { throw new Error('Duplicate download'); },
+  });
+  vm.runInContext(source.slice(source.indexOf('async function startLiveUpdate('), source.indexOf('\n// Escuta o progresso do live update')), context);
+  await vm.runInContext('startLiveUpdate()', context);
 });
