@@ -1,6 +1,6 @@
 {
   "name": "unreal-launcher",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Launcher para gerenciar instalações da Unreal Engine e projetos no Linux e Windows",
   "private": true,
   "scripts": {

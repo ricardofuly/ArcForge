@@ -975,6 +975,35 @@ document.getElementById("form-create-project")?.addEventListener("submit", async
   }
 });
 
+let engineDownloadAccountId = null;
+let engineCatalogGeneration = 0;
+
+function setEngineDownloadAccount(accountId, forceReset = false) {
+  accountId = accountId || null;
+  if (forceReset || accountId !== engineDownloadAccountId) {
+    engineDownloadAccountId = accountId;
+    engineCatalogGeneration++;
+    currentAvailableBlobs = [];
+    const list = document.getElementById("available-engines-list");
+    if (list) { list.innerHTML = ""; list.hidden = true; }
+    const modal = document.getElementById("download-engine-modal");
+    if (modal) modal.hidden = true;
+  }
+  const card = document.getElementById("btn-open-epic-downloader");
+  if (card) {
+    card.querySelector("span").textContent = accountId ? "Baixar Unreal Engine" : "Entrar para baixar Unreal Engine";
+    card.querySelector("small").textContent = accountId ? "Instale uma nova versão pela Epic Games" : "Conecte sua conta Epic para acessar os downloads";
+  }
+}
+
+async function requireEngineDownloadLogin() {
+  const status = await refreshEpicStatus();
+  if (status?.logged_in && engineDownloadAccountId) return true;
+  showToast("Conecte sua conta Epic para baixar a Unreal Engine.");
+  document.getElementById("btn-epic-login").click();
+  return false;
+}
+
 // ---------- Conta Epic Games (Topbar Perfil) ----------
 async function refreshEpicStatus() {
   const generation = vaultGeneration;
@@ -987,6 +1016,7 @@ async function refreshEpicStatus() {
     const status = await invoke("epic_status");
     if (generation !== vaultGeneration) return null;
     setVaultAccount(status.logged_in ? status.account_id : null);
+    setEngineDownloadAccount(status.logged_in ? status.account_id : null);
 
     if (status.logged_in) {
       const name = status.username || "Conectado";
@@ -1004,6 +1034,7 @@ async function refreshEpicStatus() {
   } catch (err) {
     if (generation !== vaultGeneration) return null;
     setVaultAccount(null);
+    setEngineDownloadAccount(null);
     userDisplayName.textContent = "Não conectado";
     userAvatar.textContent = "?";
     loginBtn.hidden = false;
@@ -1048,6 +1079,7 @@ document.getElementById("btn-open-epic-login").addEventListener("click", async (
 
 document.getElementById("btn-epic-logout").addEventListener("click", async () => {
   setVaultAccount(null, true);
+  setEngineDownloadAccount(null, true);
   try {
     await invoke("epic_logout");
     showToast("Você saiu da conta Epic.");
@@ -1137,6 +1169,7 @@ function renderAvailableEngines() {
     `;
 
     card.querySelector(".btn-download-blob").addEventListener("click", async () => {
+      if (!(await requireEngineDownloadLogin())) return;
       if (!isPrecompiled) {
         try {
           const ghUrl = `https://github.com/EpicGames/UnrealEngine/tree/${ver}-release`;
@@ -1193,6 +1226,8 @@ document.querySelectorAll(".filter-tab").forEach((btn) => {
 });
 
 async function loadEngineCatalog(force = false) {
+  if (!(await requireEngineDownloadLogin())) return;
+  const generation = engineCatalogGeneration;
   const loading = document.getElementById("available-engines-loading");
   const errorEl = document.getElementById("available-engines-error");
   const errorMsg = document.getElementById("available-engines-error-msg");
@@ -1213,6 +1248,7 @@ async function loadEngineCatalog(force = false) {
 
   try {
     const blobs = await invoke("epic_list_available_engines", { forceRefresh: force });
+    if (generation !== engineCatalogGeneration || !engineDownloadAccountId) return;
     loading.hidden = true;
 
     if (!blobs || blobs.length === 0) {
@@ -1231,6 +1267,7 @@ async function loadEngineCatalog(force = false) {
       showToast("Catálogo atualizado!");
     }
   } catch (err) {
+    if (generation !== engineCatalogGeneration) return;
     loading.hidden = true;
     if (currentAvailableBlobs.length === 0) {
       errorEl.hidden = false;
@@ -1239,7 +1276,7 @@ async function loadEngineCatalog(force = false) {
       showToast(`Erro ao atualizar catálogo: ${err}`, true);
     }
   } finally {
-    if (refreshBtn) {
+    if (generation === engineCatalogGeneration && refreshBtn) {
       refreshBtn.disabled = false;
       refreshBtn.innerHTML = `${uiIcon("refresh")} Atualizar`;
     }
@@ -1248,7 +1285,7 @@ async function loadEngineCatalog(force = false) {
 
 // Ouve atualizações em background vindas do worker
 listen("engine-catalog-updated", (event) => {
-  if (Array.isArray(event.payload) && event.payload.length > 0) {
+  if (engineDownloadAccountId && Array.isArray(event.payload) && event.payload.length > 0) {
     currentAvailableBlobs = event.payload;
     const modal = document.getElementById("download-engine-modal");
     if (!modal.hidden) {
@@ -1262,15 +1299,7 @@ document.getElementById("btn-refresh-catalog").addEventListener("click", () => l
 document.getElementById("btn-retry-catalog").addEventListener("click", () => loadEngineCatalog(true));
 
 async function openEpicDownloader() {
-  const status = await invoke("epic_status");
-  if (!status.logged_in) {
-    showToast("Faça login com sua conta Epic primeiro para baixar a engine.", true);
-    document.getElementById("epic-login-status").textContent = "";
-    document.getElementById("epic-login-log").hidden = true;
-    document.getElementById("epic-login-log").textContent = "";
-    document.getElementById("epic-login-modal").hidden = false;
-    return;
-  }
+  if (!(await requireEngineDownloadLogin())) return;
 
   const modal = document.getElementById("download-engine-modal");
   modal.hidden = false;
@@ -1495,6 +1524,7 @@ document.getElementById("btn-steam-folder")?.addEventListener("click", async () 
 });
 
 async function startEngineDownload(blob, cleanName, destDir) {
+  if (!(await requireEngineDownloadLogin())) return;
   // 1. Abre diretamente a view de Downloads estilo Steam
   switchView("downloads");
 
@@ -2519,7 +2549,7 @@ document.getElementById("btn-view-github-release")?.addEventListener("click", ()
       if (el.textContent.includes("Compilações oficiais da Epic Games para Linux")) el.textContent = "Instale a engine pelo Epic Games Launcher e registre sua pasta aqui.";
     });
     const choice = document.querySelector("#choice-download-epic small");
-    if (choice) choice.textContent = "Instalação oficial pelo Epic Games Launcher";
+    if (choice) choice.textContent = "Instalação oficial pelo Epic Games Launcher (requer login)";
   }
   // Garante que o widget ativo começa estritamente oculto se não houver download em andamento
   const topActive = document.getElementById("top-download-active");

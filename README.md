@@ -1,6 +1,6 @@
 # ArcForge
 
-Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.5**.
+Launcher independente para Unreal Engine no **Windows e Linux**, feito com Tauri 2, Rust e JavaScript. Versão atual: **0.1.6**.
 
 [Baixar a release](https://github.com/ricardofuly/ArcForge/releases/latest) · [Segurança e assinaturas](SECURITY_UPDATES.md) · [Revisão de segurança](SECURITY_REVIEW.md)
 
@@ -71,6 +71,8 @@ npm run tauri build -- --bundles deb,appimage
 
 Os pacotes ficam em `src-tauri/target/release/bundle/`. O workflow de release constrói Windows e Linux, testa, audita e mantém a release em rascunho até verificar as assinaturas.
 
+O acesso ao catálogo e ao download da Unreal Engine exige uma sessão Epic conectada, inclusive quando existe catálogo em cache. Sem login, o card de download oferece a entrada na conta; sair da conta limpa o catálogo exibido. No Windows, a instalação oficial é realizada pelo Epic Games Launcher, que também exige login próprio. Registrar e abrir engines já instaladas continua disponível sem login.
+
 ## Live Update
 
 No Windows, o ArcForge baixa o executável assinado, verifica sua assinatura, aguarda o processo atual encerrar, substitui o aplicativo e reinicia no mesmo caminho. A interface mostra download, verificação e preparação. Falhas na substituição ou na criação do novo processo restauram a versão anterior; o atualizador mostra o erro e o caminho do log. Projetos, configurações e sessão Epic permanecem nos respectivos diretórios de dados.
@@ -86,7 +88,7 @@ O atualizador aceita apenas pacotes da última release oficial, via HTTPS, com a
 Com ambos os arquivos na mesma pasta e a chave pública obtida deste repositório:
 
 ```powershell
-minisign -V -p arcforge.pub -m ArcForge_0.1.5_x64-setup.exe
+minisign -V -p arcforge.pub -m ArcForge_0.1.6_x64-setup.exe
 ```
 
 Minisign autentica o pacote para o atualizador. Não substitui Authenticode: os instaladores ainda não possuem certificado de publicador Windows. Aplicativos antigos precisam receber este instalador para passar a usar a nova verificação.

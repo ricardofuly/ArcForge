@@ -491,6 +491,9 @@ pub async fn download_and_extract_engine(
     use std::io::Write;
     use std::time::Instant;
 
+    crate::epic::get_valid_session().await
+        .map_err(|_| anyhow!("Conecte sua conta Epic para baixar a Unreal Engine"))?;
+
     let dest = PathBuf::from(dest_dir);
     crate::security::reject_links(&dest)?;
     std::fs::create_dir_all(&dest)?;

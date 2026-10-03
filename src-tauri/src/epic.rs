@@ -1073,23 +1073,22 @@ pub async fn fetch_remote_engine_blobs() -> Result<Vec<EngineBlob>> {
 
 /// Retorna a lista de versões. Se `force_refresh` for falso e houver cache local, responde instantaneamente sem rede.
 pub async fn list_engine_blobs(force_refresh: bool) -> Result<Vec<EngineBlob>> {
+    let session = get_valid_session().await
+        .map_err(|_| anyhow!("Conecte sua conta Epic para acessar os downloads da Unreal Engine"))?;
     if !force_refresh {
         if let Some(cached) = load_cached_engine_catalog() {
-            return Ok(cached);
+            return with_current_account(&session.account_id, || Ok(cached));
         }
     }
-
-    match fetch_remote_engine_blobs().await {
-        Ok(blobs) => Ok(blobs),
+    let blobs = match fetch_remote_engine_blobs().await {
+        Ok(blobs) => blobs,
         Err(err) => {
             eprintln!("Falha ao buscar catálogo remoto da Epic: {err:#}");
-            if let Some(cached) = load_cached_engine_catalog() {
-                Ok(cached)
-            } else {
-                Ok(fallback_engine_catalog())
-            }
+            load_cached_engine_catalog().unwrap_or_else(fallback_engine_catalog)
         }
-    }
+    };
+    // A response started before logout/account switch cannot authorize catalog access.
+    with_current_account(&session.account_id, || Ok(blobs))
 }
 
 /// Worker em background que verifica periodicamente se o catálogo da Epic foi atualizado
